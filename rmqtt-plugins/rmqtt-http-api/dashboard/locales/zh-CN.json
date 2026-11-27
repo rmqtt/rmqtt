@@ -128,6 +128,7 @@
     "messages_publish": "发布消息数",
     "messages_delivered": "投递消息数",
     "messages_discarded": "丢弃消息数",
+    "offline_saves_dropped": "离线持久化丢弃",
     "subscriptions_count": "订阅数",
     "shared_subscriptions_count": "共享订阅数",
     "status_title": "状态",
@@ -154,6 +155,7 @@
     "features_delayed": "延迟消息",
     "features_shared_subscription": "共享订阅",
     "features_auto_subscription": "自动订阅",
+    "features_flapping": "连接抖动防护",
     "features_tab_title": "功能支持状态"
   },
   "gauge": {
@@ -302,7 +304,8 @@
     "dashboard": "Dashboard",
     "confirm": "确定",
     "cancel": "取消",
-    "confirm_title": "确认操作"
+    "confirm_title": "确认操作",
+    "copy": "复制"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +355,43 @@
     "delete": "删除",
     "delete_confirm": "确定删除主题 {topic} 的保留消息吗？",
     "delete_fail": "删除失败：{msg}"
+  },
+  "delayed": {
+    "not_enabled": "延迟发布功能未启用（需加载 rmqtt-delayed 插件）",
+    "topic_filter_placeholder": "主题过滤器（如 sensor/#，留空 = 全部）",
+    "topic": "主题",
+    "delay_interval": "延迟间隔",
+    "fire_time": "触发时间",
+    "remaining": "剩余时间",
+    "client_id": "客户端 ID",
+    "username": "用户名",
+    "payload_size": "Payload 大小",
+    "node": "节点",
+    "payload": "Payload 内容",
+    "not_found": "消息已触发或已不存在",
+    "no_results": "暂无延迟消息",
+    "view_payload": "查看 Payload"
+  },
+  "flapping": {
+    "not_enabled": "连接抖动防护未启用（请加载 rmqtt-flapping 插件，或设置 enable = true）",
+    "node_local": "封禁表为节点本地状态，本列表只反映应答节点",
+    "banned_count": "当前生效封禁",
+    "dimension": "维度",
+    "dimension_all": "全部维度",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "用户名",
+    "dimension_peerhost": "来源地址",
+    "key": "键",
+    "key_placeholder": "键（精确匹配，如 ClientID / 用户名 / IP）",
+    "count": "触发次数",
+    "banned_at": "封禁时间",
+    "banned_until": "解封时间",
+    "remaining": "剩余",
+    "last_clientid": "最近 ClientID",
+    "last_ipaddress": "最近来源地址",
+    "unban": "解封",
+    "unban_confirm": "解除对 {dimension} “{key}” 的封禁？",
+    "unban_fail": "解封失败：{msg}",
+    "no_results": "当前没有生效中的封禁"
   }
 }

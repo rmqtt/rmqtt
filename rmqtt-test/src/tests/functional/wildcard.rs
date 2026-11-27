@@ -420,3 +420,154 @@ impl TestCase for WildcardV5LeadingSlashTest {
         Duration::from_secs(15)
     }
 }
+
+// ---------------------------------------------------------------------------
+// P1 conformance gap fill (G15 empty levels / G16 overlapping wildcards)
+// ---------------------------------------------------------------------------
+
+/// Positive: topic matching treats empty levels correctly — `a//b` has an
+/// empty middle level, a trailing slash adds a final empty level, and `+`
+/// can match an empty level. [MQTT-4.7.1-2/3]
+pub struct WildcardEmptyLevelsV311Test;
+
+impl TestCase for WildcardEmptyLevelsV311Test {
+    fn name(&self) -> &str {
+        "wildcard_empty_levels_v311"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let result = rt.block_on(async {
+            let uid = uuid::Uuid::new_v4().simple().to_string();
+            let publisher = crate::mqtt::v311::MqttV311Client::connect(
+                &ctx.config.broker_addr,
+                &format!("v311-emptylvl-pub-{uid}"),
+                ctx.config.connect_timeout,
+            )
+            .await?;
+            let mut subscriber = crate::mqtt::v311::MqttV311Client::connect(
+                &ctx.config.broker_addr,
+                &format!("v311-emptylvl-sub-{uid}"),
+                ctx.config.connect_timeout,
+            )
+            .await?;
+
+            let base = format!("test/v311/emptylvl/{uid}");
+            // + must match the empty middle level of "<base>//leaf"
+            let plus = format!("{base}/+/leaf");
+            // # must span empty levels and a trailing slash
+            let hash = format!("{base}/#");
+            subscriber.subscribe(&plus, QoS::AtMostOnce).await?;
+            subscriber.subscribe(&hash, QoS::AtMostOnce).await?;
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+
+            // 1) "<base>//leaf": matches BOTH + (empty level) and #
+            publisher.publish(&format!("{base}//leaf"), b"empty-middle", QoS::AtMostOnce, false).await?;
+            // 2) "<base>/x/leaf": matches + and #  → also 2 deliveries
+            publisher.publish(&format!("{base}/x/leaf"), b"normal", QoS::AtMostOnce, false).await?;
+            // 3) "<base>/": trailing slash — matches # (parent + empty level)
+            publisher.publish(&format!("{base}/"), b"trailing", QoS::AtMostOnce, false).await?;
+
+            let mut seen: Vec<String> = Vec::new();
+            for _ in 0..5 {
+                if let Some(m) = subscriber.recv_message_timeout(Duration::from_secs(3)).await {
+                    seen.push(String::from_utf8_lossy(&m.payload).into_owned());
+                }
+            }
+            let _ = publisher.disconnect().await;
+            let _ = subscriber.disconnect().await;
+
+            let mut counts = std::collections::HashMap::new();
+            for p in &seen {
+                *counts.entry(p.clone()).or_insert(0usize) += 1;
+            }
+            // each published message must have been delivered (once per
+            // matching subscription): empty-middle ×2, normal ×2, trailing ×1
+            let ok = counts.get("empty-middle").copied().unwrap_or(0) == 2
+                && counts.get("normal").copied().unwrap_or(0) == 2
+                && counts.get("trailing").copied().unwrap_or(0) == 1;
+            if ok {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(
+                    "empty-level matching mismatch: {:?} (expected empty-middle×2, normal×2, trailing×1)",
+                    counts
+                ))
+            }
+        });
+
+        match result {
+            Ok(()) => TestResult::passed(self.name(), "functional_v311", start.elapsed()),
+            Err(e) => TestResult::failed(self.name(), "functional_v311", start.elapsed(), e.to_string()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(20)
+    }
+}
+
+/// Positive: when a topic matches multiple overlapping subscriptions of the
+/// same client, each subscription receives its own copy of the message.
+/// [MQTT-4.7.0-1] (mirrors `wildcard_v3_overlap` for v3.1.1)
+pub struct WildcardV311OverlapTest;
+
+impl TestCase for WildcardV311OverlapTest {
+    fn name(&self) -> &str {
+        "wildcard_v311_overlap"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let result = rt.block_on(async {
+            let uid = uuid::Uuid::new_v4().simple().to_string();
+            let publisher = crate::mqtt::v311::MqttV311Client::connect(
+                &ctx.config.broker_addr,
+                &format!("v311-ov-pub-{uid}"),
+                ctx.config.connect_timeout,
+            )
+            .await?;
+            let mut subscriber = crate::mqtt::v311::MqttV311Client::connect(
+                &ctx.config.broker_addr,
+                &format!("v311-ov-sub-{uid}"),
+                ctx.config.connect_timeout,
+            )
+            .await?;
+
+            let concrete = format!("test/v311/overlap/{uid}/data");
+            let wildcard = format!("test/v311/overlap/{uid}/#");
+            subscriber.subscribe(&concrete, QoS::AtMostOnce).await?;
+            subscriber.subscribe(&wildcard, QoS::AtMostOnce).await?;
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+
+            publisher.publish(&concrete, b"dup", QoS::AtMostOnce, false).await?;
+
+            let m1 = subscriber.recv_message_timeout(Duration::from_secs(5)).await;
+            let m2 = subscriber.recv_message_timeout(Duration::from_secs(5)).await;
+            let _ = publisher.disconnect().await;
+            let _ = subscriber.disconnect().await;
+
+            // Both subscriptions must have been matched → two deliveries
+            match (m1, m2) {
+                (Some(a), Some(b)) if a.payload.as_ref() == b"dup" && b.payload.as_ref() == b"dup" => Ok(()),
+                (Some(_), None) | (None, Some(_)) => {
+                    Err(anyhow::anyhow!("overlapping subscriptions delivered only one copy"))
+                }
+                _ => Err(anyhow::anyhow!("overlapping subscriptions did not deliver both copies")),
+            }
+        });
+
+        match result {
+            Ok(()) => TestResult::passed(self.name(), "functional_v311", start.elapsed()),
+            Err(e) => TestResult::failed(self.name(), "functional_v311", start.elapsed(), e.to_string()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
+}

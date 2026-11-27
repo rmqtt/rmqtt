@@ -42,12 +42,15 @@ pub async fn connect(
     let reader = TcpTransportV5Reader {
         stream: Some(read_half),
         read_buf: BytesMut::with_capacity(8192),
-        codec: V5Codec::new(1024 * 1024, 1024 * 1024),
+        // max packet size 0 = unlimited; the test client must not cap the
+        // packets it can receive (the broker's max_packet_size is the
+        // authoritative limit)
+        codec: V5Codec::new(0, 0),
     };
     let writer = TcpTransportV5Writer {
         stream: Some(write_half),
         write_buf: BytesMut::with_capacity(4096),
-        codec: V5Codec::new(1024 * 1024, 1024 * 1024),
+        codec: V5Codec::new(0, 0),
     };
 
     Ok((reader, writer))

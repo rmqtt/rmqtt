@@ -1,0 +1,3 @@
+## `both`: the suite covers the prefix form `p2p/{clientid}/{topic}` and the
+## suffix form `{topic}/p2p/{clientid}` in one fixture.
+mode = "both"

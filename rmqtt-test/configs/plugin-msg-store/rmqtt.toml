@@ -1,0 +1,85 @@
+##--------------------------------------------------------------------
+## rmqttd config for the message-storage suite (rmqtt-message-storage)
+##
+## Purpose: `rmqtt-message-storage` was only ever loaded as a side effect of
+## the QoS 2 PUBREL-resume reproduction; its documented main behaviour (an
+## unexpired message is still delivered to a subscriber that subscribes
+## *later*) had no assertion at all.
+##
+## `rmqtt-retainer` is intentionally NOT started: retain and message-storage
+## both replay on subscribe, and a live retainer would make the replay case
+## pass even with the plugin broken.
+##
+## Ports: MQTT 1931 / gRPC 5401 — this fixture owns them; nothing else in
+## `rmqtt-test/configs` uses them (highest elsewhere: MQTT 1925, gRPC 5395).
+## `TestCase::broker_config()` + `TestCase::broker_addr()` in the matching
+## test module make the scheduler switch to this config and probe 1931.
+##
+## `plugins.dir` / `log.dir` carry placeholders: `tests::fixture_config()`
+## copies this directory into `target/test-fixtures/plugin-msg-store/` and substitutes the absolute
+## paths, so the fixture works regardless of the process working directory.
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+node.id = 1
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## Log
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "@@LOG_DIR@@"
+log.file = "plugin-msg-store.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+plugins.dir = "@@PLUGINS_DIR@@"
+plugins.default_startups = ["rmqtt-message-storage"]
+## `rmqtt-http-api` also declares `default_startup = true` in
+## `rmqtt-bin/Cargo.toml`; it must be off here or it binds 0.0.0.0:6060
+## (the harness-wide HTTP port) in a fixture that never asked for it.
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter", "rmqtt-http-api"]
+
+##--------------------------------------------------------------------
+## RPC
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5401"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Listener (external TCP only)
+##--------------------------------------------------------------------
+listener.tcp.external.addr = "127.0.0.1:1931"
+listener.tcp.external.workers = 8
+listener.tcp.external.max_connections = 1024000
+listener.tcp.external.max_handshaking_limit = 500
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1MB"
+listener.tcp.external.backlog = 1024
+listener.tcp.external.allow_anonymous = true
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled (would clash with other suites)
+##--------------------------------------------------------------------
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false

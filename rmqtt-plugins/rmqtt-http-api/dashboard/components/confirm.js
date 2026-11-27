@@ -1,20 +1,20 @@
 /* ============================================================
-   RMQTT Dashboard — 全局确认浮层（Promise 封装）
-   用法：
+   RMQTT Dashboard — global confirm overlay (Promise based)
+   Usage:
      const ok = await window.$confirm(message, options);
-     ok === true  → 用户点击「确认」
-     ok === false → 用户点击「取消」/ 关闭按钮 / 点击遮罩
-   选项 options（均可省略）：
-     title      自定义标题（默认 i18n common.confirm_title）
-     confirmText 确认按钮文案（默认 i18n common.confirm）
-     cancelText  取消按钮文案（默认 i18n common.cancel）
-   独立挂载到 body 的临时 Vue 实例，弹窗关闭后自动销毁；
-   同一时间只允许一个确认弹窗（重复调用直接返回 false）。
+     ok === true  -> the user pressed Confirm
+     ok === false -> the user pressed Cancel / close button / clicked the mask
+   options (all of them optional):
+     title       custom title (defaults to i18n common.confirm_title)
+     confirmText label of the confirm button (defaults to i18n common.confirm)
+     cancelText  label of the cancel button (defaults to i18n common.cancel)
+   A throwaway Vue instance mounted on body, destroyed as soon as the overlay closes;
+   only one confirm overlay may exist at a time (a repeat call returns false).
    ============================================================ */
 ;(function() {
   'use strict';
 
-  let instance = null; // 当前弹窗实例，防止叠加
+  let instance = null; // current overlay instance, prevents stacking
 
   window.$confirm = function(message, options) {
     if (instance) return Promise.resolve(false);
@@ -30,7 +30,7 @@
           const closing = Vue.ref(false);
 
           function onLocaleChanged() {
-            localeTick.value++; // 触发文案重算，响应语言切换
+            localeTick.value++; // force the texts to be recomputed so a locale switch is reflected
           }
           Vue.onMounted(function() {
             window.addEventListener('locale-changed', onLocaleChanged);

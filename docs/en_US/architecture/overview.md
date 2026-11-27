@@ -247,9 +247,9 @@ pub trait Handler: Send + Sync {
 | Hook Type | Trigger | Handler Returns |
 |-----------|---------|-----------------|
 | `BeforeStartup` | Broker initialization | Continue |
-| `ClientConnect` | CONNECT received | `(bool, Option<ConnAckReason>)` |
+| `ClientConnect` | CONNECT received | `(bool, Option<ConnectRefuse>)` |
 | `ClientAuthenticate` | Before CONNACK | `(bool, Option<ConnAckReason>)` |
-| `ClientConnack` | CONNACK sent | Continue |
+| `ClientConnack` | CONNACK sent, accepted or refused | Continue |
 | `ClientConnected` | Session established | Continue |
 | `ClientDisconnected` | Session ended | Continue |
 | `ClientSubscribe` | SUBSCRIBE received | Continue |
@@ -273,7 +273,7 @@ pub trait Handler: Send + Sync {
 
 ### Hook Registration Priority
 
-Handlers can register with a priority. Lower values execute first. The `counter` plugin registers at `Priority::MAX` to ensure it runs last.
+Handlers can register with a priority. Higher values execute first (numerically highest `Priority` first). The `counter` plugin registers at `Priority::MAX`, so it runs first in each hook chain.
 
 ---
 

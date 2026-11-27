@@ -345,6 +345,42 @@ impl Handler for HookHandler {
                                     ))),
                                 }
                             }
+                            // ── Delayed publish query handler ──────────────
+                            Ok(Message::DelayedPublishsQuery { topic_filter, max }) => {
+                                let items = self
+                                    .scx
+                                    .extends
+                                    .delayed_sender()
+                                    .await
+                                    .list(topic_filter.as_deref(), max)
+                                    .await;
+                                match MessageReply::DelayedPublishsReply(items).encode() {
+                                    Ok(ress) => {
+                                        HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                    }
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                }
+                            }
+                            // ── Delayed publish detail handler ─────────────
+                            Ok(Message::DelayedPublishsGet { topic, expired_time, client_id }) => {
+                                let detail = self
+                                    .scx
+                                    .extends
+                                    .delayed_sender()
+                                    .await
+                                    .find(&topic, expired_time, client_id.as_deref())
+                                    .await;
+                                match MessageReply::DelayedPublishsGetReply(detail).encode() {
+                                    Ok(ress) => {
+                                        HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                    }
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                }
+                            }
                         };
                         return (false, Some(new_acc));
                     }

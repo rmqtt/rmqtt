@@ -79,6 +79,11 @@ concurrent_client_limit = 3
 # See more properties and their definitions at https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
 [bridges.properties]
 "message.timeout.ms" = "5000"
+# TLS / SASL (Linux builds), see README
+#"security.protocol" = "ssl"
+#"ssl.ca.location" = "/etc/rmqtt/kafka/ca.pem"
+#"ssl.certificate.location" = "/etc/rmqtt/kafka/service.cert"
+#"ssl.key.location" = "/etc/rmqtt/kafka/service.key"
 
 [[bridges.entries]]
 #Local topic filter: All messages matching this topic filter will be forwarded.
@@ -89,6 +94,12 @@ remote.topic = "remote-topic1-egress-${local.topic}"
 remote.queue_timeout = "0m"
 #Sets the destination partition of the record.
 #remote.partition = 0
+# Forward sender data as headers: from_type, from_node, from_ipaddress, from_clientid, from_username
+#remote.forward_all_from = true
+# Forward publish data as headers: dup, retain, qos, packet_id
+#remote.forward_all_publish = true
+# Forward MQTT v5 user properties as headers, unaltered and in order
+#remote.forward_user_properties = false
 
 [[bridges.entries]]
 #Local topic filter: All messages matching this topic filter will be forwarded.

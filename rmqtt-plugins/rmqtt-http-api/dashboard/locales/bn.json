@@ -128,6 +128,7 @@
     "messages_publish": "প্রকাশিত বার্তা",
     "messages_delivered": "বিতরণকৃত বার্তা",
     "messages_discarded": "বাদ দেওয়া বার্তা",
+    "offline_saves_dropped": "Offline Persistence Drops",
     "subscriptions_count": "সাবস্ক্রিপশন",
     "shared_subscriptions_count": "ভাগ করা সাবস্ক্রিপশন",
     "status_title": "Status",
@@ -154,6 +155,7 @@
     "features_delayed": "বিলম্বিত বার্তা",
     "features_shared_subscription": "শেয়ার্ড সাবস্ক্রিপশন",
     "features_auto_subscription": "স্বয়ংক্রিয় সাবস্ক্রিপশন",
+    "features_flapping": "ফ্ল্যাপিং সুরক্ষা",
     "features_tab_title": "বৈশিষ্ট্য সমর্থন"
   },
   "gauge": {
@@ -302,7 +304,8 @@
     "dashboard": "ড্যাশবোর্ড",
     "confirm": "নিশ্চিত করুন",
     "cancel": "বাতিল",
-    "confirm_title": "নিশ্চিতকরণ"
+    "confirm_title": "নিশ্চিতকরণ",
+    "copy": "কপি"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +355,43 @@
     "delete": "মুছুন",
     "delete_confirm": "{topic} বিষয়ের জন্য সংরক্ষিত বার্তাটি মুছবেন?",
     "delete_fail": "বার্তা মুছতে ব্যর্থ হয়েছে: {msg}"
+  },
+  "delayed": {
+    "not_enabled": "বিলম্বিত প্রকাশ সক্রিয় নয় (rmqtt-delayed প্লাগইন লোড করুন)",
+    "topic_filter_placeholder": "টপিক ফিল্টার (যেমন sensor/#, খালি = সব)",
+    "topic": "টপিক",
+    "delay_interval": "বিলম্ব ব্যবধান",
+    "fire_time": "ট্রিগারের সময়",
+    "remaining": "অবশিষ্ট সময়",
+    "client_id": "ক্লায়েন্ট আইডি",
+    "username": "ব্যবহারকারীর নাম",
+    "payload_size": "পেলোড আকার",
+    "node": "নোড",
+    "payload": "পেলোড সামগ্রী",
+    "not_found": "বার্তা ইতিমধ্যে পাঠানো হয়েছে বা আর নেই",
+    "no_results": "কোনো বিলম্বিত প্রকাশ নেই",
+    "view_payload": "Payload দেখুন"
+  },
+  "flapping": {
+    "not_enabled": "ফ্ল্যাপিং সুরক্ষা সক্রিয় নয় (rmqtt-flapping প্লাগইন লোড করুন বা enable = true সেট করুন)",
+    "node_local": "নিষেধাজ্ঞা নোড-স্থানীয়; এই তালিকা শুধু উত্তর দেওয়া নোড দেখায়",
+    "banned_count": "সক্রিয় নিষেধাজ্ঞা",
+    "dimension": "মাত্রা",
+    "dimension_all": "সব মাত্রা",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "ব্যবহারকারীর নাম",
+    "dimension_peerhost": "উৎস ঠিকানা",
+    "key": "কী",
+    "key_placeholder": "কী (হুবহু মিল, যেমন ClientID / ব্যবহারকারীর নাম / IP)",
+    "count": "প্রচেষ্টা",
+    "banned_at": "নিষিদ্ধ সময়",
+    "banned_until": "নিষেধাজ্ঞা শেষ",
+    "remaining": "অবশিষ্ট",
+    "last_clientid": "সর্বশেষ ClientID",
+    "last_ipaddress": "সর্বশেষ উৎস ঠিকানা",
+    "unban": "নিষেধাজ্ঞা প্রত্যাহার",
+    "unban_confirm": "{dimension} \"{key}\" থেকে নিষেধাজ্ঞা প্রত্যাহার করবেন?",
+    "unban_fail": "প্রত্যাহার ব্যর্থ: {msg}",
+    "no_results": "কোনো সক্রিয় নিষেধাজ্ঞা নেই"
   }
 }

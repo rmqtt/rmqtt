@@ -1,0 +1,86 @@
+##--------------------------------------------------------------------
+## rmqttd config for the TLS / WebSocket transport tests (G27)
+##
+## This config is used ONLY by a self-managed broker process started inside
+## the tests (`transport_tls_v311`, `transport_wss_v311`,
+## `transport_ws_v311`, `transport_tls_mtls_v311` in transport_tls.rs).
+##
+## TLS (1897) and WSS (1899) run with cross-certificate (mTLS) enabled: the
+## server requests a client certificate validated against
+## `rmqtt-bin/root.pem`. WS (1898) is plain.
+##
+## Certificates are the repo's own test certs (rmqtt-bin/). The ports AVOID
+## the default broker's TLS/WS/WSS listeners (8883/8080/8443), which are
+## always enabled by configs/default/rmqtt.toml and would otherwise clash
+## with the self-managed broker.
+##
+## Usage (run from the rmqtt repository root); the broker is spawned by the
+## test itself, no manual start needed.
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+node.id = 1
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## RPC
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5375"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Log
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "."
+log.file = "rmqtt.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+# Self-contained: plugin configs live in this directory's plugins/ sub-dir.
+plugins.dir = "rmqtt-test/configs/transport-tls/plugins/"
+plugins.default_startups = []
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter", "rmqtt-http-api"]
+
+##--------------------------------------------------------------------
+## Listeners
+##--------------------------------------------------------------------
+# No plain TCP: transport tests only exercise TLS / WS / WSS.
+listener.tcp.external.enable = false
+listener.tcp.internal.enable = false
+
+## MQTT over TLS (mTLS: server requires a client certificate)
+listener.tls.external.enable = true
+listener.tls.external.addr = "127.0.0.1:1897"
+listener.tls.external.allow_anonymous = true
+listener.tls.external.cross_certificate = true
+listener.tls.external.cert = "./rmqtt-bin/rmqtt.pem"
+listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
+listener.tls.external.client_ca_certs = "./rmqtt-bin/root.pem"
+
+## MQTT over WebSocket (plain)
+listener.ws.external.enable = true
+listener.ws.external.addr = "127.0.0.1:1898"
+listener.ws.external.allow_anonymous = true
+
+## MQTT over TLS-WebSocket (mTLS: server requires a client certificate)
+listener.wss.external.enable = true
+listener.wss.external.addr = "127.0.0.1:1899"
+listener.wss.external.allow_anonymous = true
+listener.wss.external.cross_certificate = true
+listener.wss.external.cert = "./rmqtt-bin/rmqtt.pem"
+listener.wss.external.key = "./rmqtt-bin/rmqtt.key"
+listener.wss.external.client_ca_certs = "./rmqtt-bin/root.pem"
+
+listener.quic.external.enable = false

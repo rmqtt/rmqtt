@@ -45,7 +45,7 @@ rmqttd --id 1 --plugins-default-startups "rmqtt-cluster-raft" \
 | `task_exec_queue_workers` | integer | `500` | 任务执行队列工作线程数 |
 | `task_exec_queue_max` | integer | `100_000` | 任务执行队列最大容量 |
 | `compression` | string | `"zstd"` | 快照压缩算法 |
-| `leader_id` | integer | `0` | 指定领导者节点 ID。主要用于单机伪集群开发/测试（0 = 自动选择配置中的第一个节点）。可通过 `--raft-leader-id` CLI 参数覆盖 |
+| `leader_id` | integer | `0` | 引导提示：指定由哪个节点引导全新集群。`0` = 不指定引导节点，并行冷启动时任何探测不到 leader 的节点都可能各自引导单节点集群（脑裂）。并行启动请在每个节点固定为同一个、且存在于 `raft_peer_addrs` 中的 ID。可通过 `--raft-leader-id` 覆盖 |
 
 压缩算法：`lz4_flex`、`lz4`、`zstd`、`snap`、`flate2`
 

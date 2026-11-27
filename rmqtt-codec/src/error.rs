@@ -72,6 +72,8 @@ pub enum DecodeError {
     UnsupportedProtocolLevel,
     #[error("Connect frame's reserved flag is set")]
     ConnectReservedFlagSet,
+    #[error("Invalid connect flags")]
+    InvalidConnectFlags,
     #[error("ConnectAck frame's reserved flag is set")]
     ConnAckReservedFlagSet,
     #[error("Invalid client id")]
@@ -83,6 +85,10 @@ pub enum DecodeError {
     PacketIdRequired,
     #[error("Max size exceeded: size={size}, max={max}")]
     MaxSizeExceeded { size: u32, max: u32 },
+    #[error("Invalid topic filter")]
+    InvalidTopicFilter,
+    #[error("Invalid topic name")]
+    InvalidTopicName,
     #[error("utf8 error")]
     Utf8Error,
     #[error("io error, {:?}", _0)]
@@ -103,11 +109,14 @@ impl ToReasonCode for DecodeError {
             DecodeError::MalformedPacket => DisconnectReasonCode::MalformedPacket,
             DecodeError::UnsupportedProtocolLevel => DisconnectReasonCode::ImplementationSpecificError,
             DecodeError::ConnectReservedFlagSet => DisconnectReasonCode::ProtocolError,
+            DecodeError::InvalidConnectFlags => DisconnectReasonCode::ProtocolError,
             DecodeError::ConnAckReservedFlagSet => DisconnectReasonCode::ProtocolError,
             DecodeError::InvalidClientId => DisconnectReasonCode::NotAuthorized,
             DecodeError::UnsupportedPacketType => DisconnectReasonCode::ImplementationSpecificError,
             DecodeError::PacketIdRequired => DisconnectReasonCode::ProtocolError,
             DecodeError::MaxSizeExceeded { .. } => DisconnectReasonCode::PacketTooLarge,
+            DecodeError::InvalidTopicFilter => DisconnectReasonCode::TopicFilterInvalid,
+            DecodeError::InvalidTopicName => DisconnectReasonCode::TopicNameInvalid,
             DecodeError::Utf8Error => DisconnectReasonCode::PayloadFormatInvalid,
             DecodeError::Io(_) => DisconnectReasonCode::UnspecifiedError,
         }

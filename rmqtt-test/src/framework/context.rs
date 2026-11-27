@@ -141,25 +141,41 @@ impl TestContext {
         }
     }
 
-    /// Ensure the broker runs with the given config file (synchronous,
-    /// idempotent).
+    /// Ensure the broker runs with the given config file and listen address
+    /// (synchronous, idempotent).
     ///
-    /// If the broker is already running with `target` (compared against
-    /// `BrokerProcess::config_path`), nothing happens. Otherwise the broker
-    /// is restarted with the new config. Returns `Ok(())` in `--no-broker`
-    /// mode (nothing to switch); the caller decides how to warn.
-    pub fn ensure_broker_config(&self, target: &std::path::Path) -> Result<(), anyhow::Error> {
+    /// `addr` is the address the harness health-probes while `target` is in
+    /// use; `None` means "keep the harness-wide `--addr`"
+    /// (`TestConfig::broker_addr`). A suite whose config pins its own port
+    /// declares it through `TestCase::broker_addr` and lands here.
+    ///
+    /// If the broker is already running with both (compared against
+    /// `BrokerProcess::config_path` and `BrokerProcess::addr`), nothing
+    /// happens. Otherwise the broker is restarted with the new pair. Returns
+    /// `Ok(())` in `--no-broker` mode (nothing to switch); the caller decides
+    /// how to warn.
+    pub fn ensure_broker_config(
+        &self,
+        target: &std::path::Path,
+        addr: Option<&str>,
+    ) -> Result<(), anyhow::Error> {
         if let Some(ref broker) = self.broker {
             let mut b = broker.lock();
-            if b.config_path().map(|p| p.as_path()) == Some(target) {
+            let want = match addr {
+                Some(addr) => addr.to_string(),
+                None => self.config.broker_addr.clone(),
+            };
+            if b.config_path().map(|p| p.as_path()) == Some(target) && b.addr() == want {
                 return Ok(());
             }
             info!(
-                "switching broker config: {:?} -> {:?}",
+                "switching broker config: {:?} -> {:?} (probe {} -> {})",
                 b.config_path().map(|p| p.display().to_string()),
-                target.display()
+                target.display(),
+                b.addr(),
+                want
             );
-            b.restart_with_config(Some(target.to_path_buf()))
+            b.restart_with_config_and_addr(Some(target.to_path_buf()), &want)
         } else {
             Ok(())
         }

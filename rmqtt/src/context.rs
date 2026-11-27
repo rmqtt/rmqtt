@@ -63,8 +63,6 @@ use rust_box::task_exec_queue::{Builder, TaskExecQueue};
 use serde::{Deserialize, Serialize};
 
 use crate::args::CommandArgs;
-#[cfg(feature = "delayed")]
-use crate::delayed::DefaultDelayedSender;
 use crate::executor::HandshakeExecutor;
 use crate::extend;
 #[cfg(feature = "metrics")]
@@ -85,7 +83,7 @@ use crate::utils::Counter;
 /// ```
 /// use rmqtt::context::ServerContextBuilder;
 /// let builder = ServerContextBuilder::new()
-///     .mqtt_delayed_publish_max(50_000)
+///     .mqtt_max_sessions(100_000)
 ///     .busy_handshaking_limit(100);
 /// ```
 pub struct ServerContextBuilder {
@@ -104,12 +102,8 @@ pub struct ServerContextBuilder {
     /// Maximum allowed concurrent handshakes before busy state
     pub busy_handshaking_limit: isize,
 
-    /// Maximum delayed publish messages allowed
-    pub mqtt_delayed_publish_max: usize,
     /// Maximum concurrent MQTT sessions (0 = unlimited)
     pub mqtt_max_sessions: isize,
-    /// Immediate execution flag for delayed publishes
-    pub mqtt_delayed_publish_immediate: bool,
 
     /// plugins config, path or configMap<plugin_name, toml_string>
     #[cfg(feature = "plugin")]
@@ -137,9 +131,7 @@ impl ServerContextBuilder {
             task_exec_queue_max: 300_000,
             busy_check_enable: true,
             busy_handshaking_limit: 0,
-            mqtt_delayed_publish_max: 100_000,
             mqtt_max_sessions: 0,
-            mqtt_delayed_publish_immediate: true,
             #[cfg(feature = "plugin")]
             plugins_config: PluginManagerConfig::default(),
             circuit_breaker_config: CircuitBreakerConfig::default(),
@@ -188,21 +180,9 @@ impl ServerContextBuilder {
         self
     }
 
-    /// Configures maximum delayed publish messages
-    pub fn mqtt_delayed_publish_max(mut self, mqtt_delayed_publish_max: usize) -> Self {
-        self.mqtt_delayed_publish_max = mqtt_delayed_publish_max;
-        self
-    }
-
     /// Sets maximum allowed MQTT sessions
     pub fn mqtt_max_sessions(mut self, mqtt_max_sessions: isize) -> Self {
         self.mqtt_max_sessions = mqtt_max_sessions;
-        self
-    }
-
-    /// Configures immediate execution for delayed publishes
-    pub fn mqtt_delayed_publish_immediate(mut self, mqtt_delayed_publish_immediate: bool) -> Self {
-        self.mqtt_delayed_publish_immediate = mqtt_delayed_publish_immediate;
         self
     }
 
@@ -265,9 +245,7 @@ impl ServerContextBuilder {
                 execs: DashMap::default(),
 
                 busy_check_enable: self.busy_check_enable,
-                mqtt_delayed_publish_max: self.mqtt_delayed_publish_max,
                 mqtt_max_sessions: self.mqtt_max_sessions,
-                mqtt_delayed_publish_immediate: self.mqtt_delayed_publish_immediate,
 
                 handshakings: Counter::new(),
                 connections: Counter::new(),
@@ -317,12 +295,8 @@ pub struct ServerContextInner {
 
     /// Busy state check flag
     pub busy_check_enable: bool,
-    /// Delayed publish message limit
-    pub mqtt_delayed_publish_max: usize,
     /// Maximum allowed MQTT sessions
     pub mqtt_max_sessions: isize,
-    /// Immediate delayed publish flag
-    pub mqtt_delayed_publish_immediate: bool,
 
     /// Active handshake counter
     pub handshakings: Counter,
@@ -359,11 +333,6 @@ impl ServerContext {
     async fn config(self) -> Self {
         *self.extends.shared_mut().await = Box::new(DefaultShared::new(Some(self.clone())));
         *self.extends.router_mut().await = Box::new(DefaultRouter::new(Some(self.clone())));
-        #[cfg(feature = "delayed")]
-        {
-            *self.extends.delayed_sender_mut().await =
-                Box::new(DefaultDelayedSender::new(Some(self.clone())));
-        }
         self
     }
 
@@ -442,13 +411,10 @@ impl fmt::Debug for ServerContext {
             f,
             "ServerContext node: {:?}, \
             handshake_exec.active_count: {}, \
-            busy_check_enable: {}, mqtt_delayed_publish_max: {}, \
-            mqtt_delayed_publish_immediate: {}, mqtt_max_sessions: {}",
+            busy_check_enable: {}, mqtt_max_sessions: {}",
             self.node,
             self.handshake_exec.active_count(),
             self.busy_check_enable,
-            self.mqtt_delayed_publish_max,
-            self.mqtt_delayed_publish_immediate,
             self.mqtt_max_sessions
         )?;
         Ok(())

@@ -22,7 +22,20 @@ disconnect_if_pub_rejected = true
 ## Default: false
 disconnect_if_expiry = false
 
-## Return 'Deny' if http request error otherwise 'Ignore'
+## Return 'Deny' if the HTTP request itself fails (transport-layer errors such
+## as connection refused, timeout, DNS or TLS failure), otherwise 'Ignore'.
+##
+## NOTE: This only covers request-level failures. If the auth service responds
+## with a non-2xx status code (404/500/502, ...), the request succeeded but no
+## auth decision was returned; the result is always 'Ignore' and the auth chain
+## continues, regardless of this option.
+##
+## WARNING: An 'Ignore' result leaves the decision to the remaining plugins.
+## The built-in rmqtt-acl plugin ships a default ["allow", "all"] rule whose
+## omitted action column resolves to ALL operations including CONNECT, so such
+## connections are explicitly allowed (even with allow_anonymous = false).
+## If you enable a custom auth plugin, comment out ["allow", "all"] and enable
+## ["deny", "all"] in rmqtt-acl.toml for fail-closed behavior.
 ##
 ## Value: true | false
 ## Default: true

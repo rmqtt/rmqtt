@@ -71,6 +71,9 @@ cargo build -p rmqtt-test --release
 # 运行特定套件（--suites 支持前缀匹配，见下）
 ./target/release/mqtt_harness --workspace . --suites functional_v5
 
+# 运行特定用例（-t/--test 按用例名子串匹配，可重复）
+./target/release/mqtt_harness --workspace . --suites functional_v5 -t will_delay_v5
+
 # 连接到已运行的 Broker
 ./target/release/mqtt_harness --no-broker
 
@@ -82,7 +85,14 @@ cargo build -p rmqtt-test --release
 > （不依赖仓库根的 `rmqtt.toml` / `rmqtt-plugins/*.toml`；保留 TCP/TLS/WS/WSS/QUIC
 > 全部监听）。需要特殊配置的用例通过 `TestCase::broker_config()` 声明，构建时自动
 > 拆分为 `{suite}@{config}` 子套件（如 `functional_v5@retain-disabled`），调度器仅在
-> **suite 边界**重启 broker 切换配置。可显式指定配置：
+> **suite 边界**重启 broker 切换配置。
+>
+> 这类配置通常还必须监听 harness 的 `--addr`（默认 `127.0.0.1:1883`），因为健康检查
+> 探测的就是该地址。若 fixture 想自持端口，可再声明 `TestCase::broker_addr()`：子套件
+> 运行期间调度器会把探针重定向到该地址。目前这么做的是 `configs/flapping`
+> （`127.0.0.1:1902`）与 `configs/flapping-order`（`127.0.0.1:1903`）。
+>
+> 可显式指定配置：
 >
 > ```bash
 > ./target/release/mqtt_harness --workspace . --config rmqtt-test/configs/retain-disabled/rmqtt.toml
@@ -93,17 +103,22 @@ cargo build -p rmqtt-test --release
 
 | 套件 | 用例数 | 测试内容 |
 |-------|--------|----------|
-| `functional_v3` | 47 | MQTT 3.1 规范符合性：连接（错误协议名/级别/保留位/空 ClientId/超长 ID）、QoS 0/1/2 发布/订阅、QoS 2 去重与 PUBREL 重发、保留消息、遗嘱、Keep Alive、会话持久化、通配符（含 `$SYS`）、边界载荷、协议错误 |
-| `functional_v311` | 64 | MQTT 3.1.1 规范符合性：连接（含二次 CONNECT 拒绝 [MQTT-3.1.0-2]）、QoS 0/1/2、保留消息边界、Will QoS2、Keep Alive 1.5 倍超时、Session Present/恢复、通配符匹配、共享订阅、协议错误 |
-| `functional_v5` | 63 | MQTT 5.0 规范符合性：CONNACK 能力通告、会话过期（含 DISCONNECT SEI=0 [MQTT-3.14.2-2]）、主题别名（含未知别名→0x94）、流控、最大报文大小、订阅标识符、Retain Handling、Will 延迟、增强认证拒绝（0x8C）、协议错误 |
-| `stress` | 3 | 连接负载（100 客户端）、发布 QPS（1000 条）、扇出（1→N） |
-| `chaos` | 6 | Broker 重启、连接抖动、重连风暴、QoS 1 可靠性、慢消费者 |
+| `functional_v3` | 51 | MQTT 3.1 规范符合性：连接（错误协议名/级别/保留位/空 ClientId/超长 ID）、QoS 0/1/2 发布/订阅、QoS 2 去重与 PUBREL 重发、保留消息、遗嘱、Keep Alive、会话持久化、通配符（含 `$SYS`）、边界载荷、协议错误 |
+| `functional_v311` | 132 | MQTT 3.1.1 规范符合性：连接（含二次 CONNECT 拒绝 [MQTT-3.1.0-2]）、QoS 0/1/2、保留消息边界、Will QoS2、Keep Alive 1.5 倍超时、Session Present/恢复、通配符匹配、共享订阅（含 sticky / hash_clientid / hash_topic 三种分派策略）、非首层 `$` 级、协议错误、连接抖动防护（0x05 回退）、`$SYS` 统计与客户端事件、离线队列溢出策略（按 QoS 丢最旧/丢最新）、自动订阅、主题重写、P2P 消息、桥接来源识别 |
+| `functional_v5` | 120 | MQTT 5.0 规范符合性：CONNACK 能力通告、会话过期（含 DISCONNECT SEI=0 [MQTT-3.14.2-2]）、主题别名（含未知别名/超出广播上限的别名→0x94）、流控、最大报文大小、订阅标识符、Retain Handling、Will 延迟、增强认证拒绝（0x8C）、协议错误、连接抖动防护（0x8A 封禁与 HTTP 解封、被拒连接仍进观察者计数）、消息存储重放与过期、监听器配额与 `$limit`/`$exclusive` 订阅形式 |
+| `stress` | 6 | 连接负载（100 客户端）、发布负载（1000 条）、扇出（1→N）、混合 QoS 0/1/2、批量订阅、保留消息洪泛 |
+| `chaos` | 19 | Broker 重启（单节点、集群 broadcast/raft、整集群重启）、重启后会话路由恢复、连接抖动、重连风暴、QoS 1 可靠性、慢消费者、会话存储启动加载与离线洪泛上限 |
 
-> functional_v5 的 63 个用例中，`will_retain_rejected_when_retain_unavailable_v5`
-> （需不加载 retainer 插件）与 `qos2_pubrel_resume_collision`（需加载
-> message-storage 插件）会自动拆分为 `functional_v5@retain-disabled` 与
-> `functional_v5@pubrel-collision` 两个子套件，其余 61 个在默认配置组
-> `functional_v5` 中运行；配置切换仅发生在 suite 边界。
+> functional_v5 的 120 个用例中，107 个在默认配置组 `functional_v5` 中运行；其余 13 个
+> 需要不同的 broker 配置，构建时按配置拆分为 8 个子套件：
+> `functional_v5@retain-disabled`（1，不加载 retainer 插件 → Retain Available = 0）、
+> `functional_v5@pubrel-collision`（1，加载 message-storage 复现 PUBREL 冲突）、
+> `functional_v5@issue532-ramp`（1）与 `functional_v5@issue532-ramp-tls`（1）（issue #532
+> 的并发复现，各自独占端口）、`functional_v5@flapping`（2）与
+> `functional_v5@flapping-order`（1）（需启用 flapping 插件并自占 MQTT/HTTP 端口；后者还要
+> 与 counter 同启，且因 `client_connect` 是节点级累计量、要做精确增量断言而独占 broker
+> 进程）、`functional_v5@plugin-msg-store`（2）与 `functional_v5@plugin-limits`（4）
+> （消息存储、配额与 `$limit` 阈值需调到可观察的量级）。配置切换仅发生在 suite 边界。
 
 ---
 
@@ -150,7 +165,8 @@ mod tests {
 ### 添加集成测试用例
 
 实现 `TestCase` trait 并在测试入口注册。详情见 [rmqtt-test](../../../rmqtt-test/README-CN.md)。
-需要特殊 broker 配置的用例通过 `broker_config()` 声明，机制说明见
+需要特殊 broker 配置的用例通过 `broker_config()` 声明，需要自持端口的再声明
+`broker_addr()`；机制说明见
 [rmqtt-test 按用例自动切换 Broker 配置](./rmqtt-test-config-switching.md)。
 
 ---

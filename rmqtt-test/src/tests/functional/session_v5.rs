@@ -445,3 +445,119 @@ impl TestCase for SessionV5ExpiryCleanupTest {
         Duration::from_secs(20)
     }
 }
+
+// ---------------------------------------------------------------------------
+// P1 gap-analysis additions (designs/mqtt-5.0-standalone-test-gap-analysis.md)
+// ---------------------------------------------------------------------------
+
+/// G19: the Session Expiry Interval can be updated on reconnect via CONNECT.
+/// When a session with a non-zero expiry is resumed with Session Expiry
+/// Interval = 0, the session ends when that connection closes.
+/// [MQTT-3.1.2-11.2 / MQTT-3.1.2-11.4]
+pub struct SessionV5ExpiryUpdateOnReconnectTest;
+
+impl TestCase for SessionV5ExpiryUpdateOnReconnectTest {
+    fn name(&self) -> &str {
+        "session_v5_expiry_update_on_reconnect"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result: anyhow::Result<()> = rt.block_on(async {
+            let topic = "test/v5/sessupd";
+
+            // 1. Establish a session with a non-zero expiry and a subscription.
+            let mut c1 = crate::mqtt::v5::MqttV5Client::connect_with_options(
+                &ctx.config.broker_addr,
+                "sessupd",
+                ctx.config.connect_timeout,
+                true, // clean start: new session
+                60,
+                None,
+                None,
+                None,
+                Some(60), // session expiry 60s
+                None,
+                None,
+            )
+            .await?;
+            c1.subscribe(topic, QoS::AtLeastOnce).await?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            c1.disconnect().await?;
+
+            // 2. Resume the session with Session Expiry Interval = 0.
+            //    The session must still exist here (session_present = true)
+            //    and its subscriptions must be intact, but it is now set to
+            //    end when this connection closes.
+            let mut c2 = crate::mqtt::v5::MqttV5Client::connect_with_options(
+                &ctx.config.broker_addr,
+                "sessupd",
+                ctx.config.connect_timeout,
+                false, // resume
+                60,
+                None,
+                None,
+                None,
+                Some(0), // update: session ends with this connection
+                None,
+                None,
+            )
+            .await?;
+            if !c2.connack().session_present {
+                return Err(anyhow::anyhow!(
+                    "session was not resumed on reconnect (session_present = false)"
+                ));
+            }
+            // Prove the subscription survived the resume.
+            let publisher = crate::mqtt::v5::MqttV5Client::connect(
+                &ctx.config.broker_addr,
+                "sessupd-pub",
+                ctx.config.connect_timeout,
+            )
+            .await?;
+            publisher.publish(topic, b"resumed", QoS::AtMostOnce, false).await?;
+            let msg = c2.recv_message_timeout(Duration::from_secs(5)).await;
+            match msg {
+                Some(m) if m.payload.as_ref() == b"resumed" => {}
+                Some(m) => return Err(anyhow::anyhow!("unexpected payload on resume: {:?}", m.payload)),
+                None => return Err(anyhow::anyhow!("subscription lost on resume")),
+            }
+            c2.disconnect().await?;
+
+            // 3. The session should now be gone: a fresh resume must report
+            //    session_present = false.
+            let c3 = crate::mqtt::v5::MqttV5Client::connect_with_options(
+                &ctx.config.broker_addr,
+                "sessupd",
+                ctx.config.connect_timeout,
+                false, // resume (there should be nothing to resume)
+                60,
+                None,
+                None,
+                None,
+                Some(60),
+                None,
+                None,
+            )
+            .await?;
+            if c3.connack().session_present {
+                return Err(anyhow::anyhow!(
+                    "session still present after being resumed with Session Expiry Interval = 0 \
+                     and disconnected [MQTT-3.1.2-11.4]"
+                ));
+            }
+            publisher.disconnect().await?;
+            c3.disconnect().await?;
+            Ok(())
+        });
+        match result {
+            Ok(()) => TestResult::passed(self.name(), "functional_v5", start.elapsed()),
+            Err(e) => TestResult::failed(self.name(), "functional_v5", start.elapsed(), e.to_string()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(30)
+    }
+}

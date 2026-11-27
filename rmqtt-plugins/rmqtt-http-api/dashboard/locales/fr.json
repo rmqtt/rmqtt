@@ -128,6 +128,7 @@
     "messages_publish": "Messages publiés",
     "messages_delivered": "Messages livrés",
     "messages_discarded": "Messages rejetés",
+    "offline_saves_dropped": "Enregistrements hors ligne abandonnés",
     "subscriptions_count": "Abonnements",
     "shared_subscriptions_count": "Abonnements partagés",
     "status_title": "Status",
@@ -154,6 +155,7 @@
     "features_delayed": "Messages différés",
     "features_shared_subscription": "Abonnements partagés",
     "features_auto_subscription": "Abonnement automatique",
+    "features_flapping": "Protection contre le flapping",
     "features_tab_title": "Fonctionnalités"
   },
   "gauge": {
@@ -302,7 +304,8 @@
     "dashboard": "Dashboard",
     "confirm": "Confirmer",
     "cancel": "Annuler",
-    "confirm_title": "Confirmation"
+    "confirm_title": "Confirmation",
+    "copy": "Copier"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +355,43 @@
     "delete": "Supprimer",
     "delete_confirm": "Supprimer le message retenu pour le sujet {topic} ?",
     "delete_fail": "Échec de la suppression : {msg}"
+  },
+  "delayed": {
+    "not_enabled": "La publication différée n'est pas activée (chargez le plugin rmqtt-delayed)",
+    "topic_filter_placeholder": "Filtre de sujet (ex. sensor/#, vide = tout)",
+    "topic": "Sujet",
+    "delay_interval": "Intervalle de délai",
+    "fire_time": "Heure de déclenchement",
+    "remaining": "Restant",
+    "client_id": "ID client",
+    "username": "Nom d'utilisateur",
+    "payload_size": "Taille du payload",
+    "node": "Nœud",
+    "payload": "Contenu du payload",
+    "not_found": "Message déjà déclenché ou inexistant",
+    "no_results": "Aucune publication différée",
+    "view_payload": "Voir le Payload"
+  },
+  "flapping": {
+    "not_enabled": "La protection contre le flapping n'est pas activée (chargez le plugin rmqtt-flapping ou définissez enable = true)",
+    "node_local": "Les bannissements sont locaux au nœud ; cette liste ne reflète que le nœud qui répond",
+    "banned_count": "Bannissements en cours",
+    "dimension": "Dimension",
+    "dimension_all": "Toutes les dimensions",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "Nom d'utilisateur",
+    "dimension_peerhost": "Adresse source",
+    "key": "Clé",
+    "key_placeholder": "Clé (correspondance exacte, ex. ClientID / nom d'utilisateur / IP)",
+    "count": "Tentatives",
+    "banned_at": "Banni le",
+    "banned_until": "Banni jusqu'au",
+    "remaining": "Restant",
+    "last_clientid": "Dernier ClientID",
+    "last_ipaddress": "Dernière adresse source",
+    "unban": "Débannir",
+    "unban_confirm": "Lever le bannissement de {dimension} « {key} » ?",
+    "unban_fail": "Échec du débannissement : {msg}",
+    "no_results": "Aucun bannissement en cours"
   }
 }

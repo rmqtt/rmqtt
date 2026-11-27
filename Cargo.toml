@@ -38,6 +38,7 @@ rmqtt-session-storage = { path = "rmqtt-plugins/rmqtt-session-storage" }
 rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
 rmqtt-topic-rewrite = { path = "rmqtt-plugins/rmqtt-topic-rewrite" }
 rmqtt-auto-subscription = { path = "rmqtt-plugins/rmqtt-auto-subscription"}
+rmqtt-delayed = { path = "rmqtt-plugins/rmqtt-delayed"}
 rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
 rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
 rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka" }
@@ -50,10 +51,11 @@ rmqtt-bridge-egress-reductstore = { path = "rmqtt-plugins/rmqtt-bridge-egress-re
 rmqtt-bridge-origin = { path = "rmqtt-plugins/rmqtt-bridge-origin"}
 rmqtt-p2p-messaging = { path = "rmqtt-plugins/rmqtt-p2p-messaging"}
 rmqtt-shared-subscription = { path = "rmqtt-plugins/rmqtt-shared-subscription" }
+rmqtt-flapping = { path = "rmqtt-plugins/rmqtt-flapping" }
 
 
 [workspace.package]
-version = "0.23.1"
+version = "0.25.0"
 edition = "2021"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
@@ -62,45 +64,47 @@ license = "MIT OR Apache-2.0"
 categories = ["network-programming"]
 keywords = ["MQTT", "IoT", "messaging", "MQTT-Server", "MQTT-Broker"]
 exclude = [".gitignore", ".cargo/config"]
-rust-version = "1.94.0"
+rust-version = "1.95.0"
 
 
 [workspace.dependencies]
-rmqtt = "0.23.1"
-rmqtt-codec = "0.2.2"
-rmqtt-net = "0.4.0"
-rmqtt-conf = "0.4.0"
+rmqtt = "0.25.0"
+rmqtt-codec = "0.4.0"
+rmqtt-net = "0.6.0"
+rmqtt-conf = "0.6.0"
 rmqtt-macros = "0.1.2"
 rmqtt-utils = "0.1.6"
 rmqtt-storage = { version = "0.11.1",  default-features = false }
 
-rmqtt-plugins = "0.23.1"
-rmqtt-acl = "0.23.1"
-rmqtt-retainer = "0.23.1"
-rmqtt-http-api = "0.23.1"
-rmqtt-counter = "0.23.1"
-rmqtt-auth-http = "0.23.1"
-rmqtt-auth-jwt = "0.23.1"
-rmqtt-auto-subscription = "0.23.1"
-rmqtt-bridge-egress-kafka = "0.23.1"
-rmqtt-bridge-ingress-kafka = "0.23.1"
-rmqtt-bridge-egress-mqtt = "0.23.1"
-rmqtt-bridge-ingress-mqtt = "0.23.1"
-rmqtt-bridge-ingress-pulsar = "0.23.1"
-rmqtt-bridge-egress-pulsar = "0.23.1"
-rmqtt-bridge-ingress-nats = "0.23.1"
-rmqtt-bridge-egress-nats = "0.23.1"
-rmqtt-bridge-egress-reductstore = "0.23.1"
-rmqtt-bridge-origin = "0.23.1"
-rmqtt-message-storage = "0.23.1"
-rmqtt-session-storage = "0.23.1"
-rmqtt-sys-topic = "0.23.1"
-rmqtt-topic-rewrite = "0.23.1"
-rmqtt-web-hook = "0.23.1"
-rmqtt-cluster-raft = "0.23.1"
-rmqtt-cluster-broadcast = "0.23.1"
-rmqtt-shared-subscription = "0.23.1"
-rmqtt-p2p-messaging = "0.23.1"
+rmqtt-plugins = "0.25.0"
+rmqtt-acl = "0.25.0"
+rmqtt-retainer = "0.25.0"
+rmqtt-http-api = "0.25.0"
+rmqtt-counter = "0.25.0"
+rmqtt-auth-http = "0.25.0"
+rmqtt-auth-jwt = "0.25.0"
+rmqtt-auto-subscription = "0.25.0"
+rmqtt-delayed = "0.25.0"
+rmqtt-bridge-egress-kafka = "0.25.0"
+rmqtt-bridge-ingress-kafka = "0.25.0"
+rmqtt-bridge-egress-mqtt = "0.25.0"
+rmqtt-bridge-ingress-mqtt = "0.25.0"
+rmqtt-bridge-ingress-pulsar = "0.25.0"
+rmqtt-bridge-egress-pulsar = "0.25.0"
+rmqtt-bridge-ingress-nats = "0.25.0"
+rmqtt-bridge-egress-nats = "0.25.0"
+rmqtt-bridge-egress-reductstore = "0.25.0"
+rmqtt-bridge-origin = "0.25.0"
+rmqtt-message-storage = "0.25.0"
+rmqtt-session-storage = "0.25.0"
+rmqtt-sys-topic = "0.25.0"
+rmqtt-topic-rewrite = "0.25.0"
+rmqtt-web-hook = "0.25.0"
+rmqtt-cluster-raft = "0.25.0"
+rmqtt-cluster-broadcast = "0.25.0"
+rmqtt-shared-subscription = "0.25.0"
+rmqtt-p2p-messaging = "0.25.0"
+rmqtt-flapping = "0.25.0"
 
 tokio = { version = "1",  default-features = false }
 reqwest = "0.12"
@@ -130,6 +134,8 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 tracing-appender = "0.2"
 base64 = "0.22"
+sha2 = "0.10"
+subtle = "2.6"
 postcard = { version = "1.1", features = ["use-std"] }
 url = { version = "2.5.4", default-features = false }
 systemstat = "0.2"

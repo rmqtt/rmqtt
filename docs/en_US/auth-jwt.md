@@ -6,6 +6,8 @@ English | [简体中文](../zh_CN/auth-jwt.md)
 [JSON Web Token (JWT)](https://jwt.io/) is a token-based authentication mechanism that eliminates the need for the 
 server to store client authentication credentials or session information. *RMQTT* supports user authentication based on JWT.
 
+> **Note — authentication chain and ACL interaction:** This plugin participates in RMQTT's priority-ordered authentication chain and does not change or override ACL behavior. When it cannot make a decision (for example, the JWT fails validation in a way the authenticator treats as inconclusive), it yields `ignore` and the chain continues with the next plugin. The built-in `rmqtt-acl` plugin is the terminal chain member, and its default final rule `["allow", "all"]` resolves to ALL operations including CONNECT — it explicitly allows connections left as `ignore`, even with `allow_anonymous = false`. If you enable this (or any custom) authentication plugin, configure your ACL rules accordingly: comment out `["allow", "all"]` and enable `["deny", "all"]` in `rmqtt-acl.toml` so only clients explicitly allowed by your authentication can connect (fail-closed). See the `rmqtt-acl` README and [docs/en_US/acl.md](./acl.md) for details.
+
 #### Authentication Principle
 
 The client carries the JWT in the connection request, and the JWT signature is verified using a pre-configured secret 

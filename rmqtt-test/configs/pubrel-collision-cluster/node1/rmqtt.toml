@@ -58,3 +58,11 @@ listener.tcp.external.message_retry_interval = "5s"
 listener.tcp.external.message_expiry_interval = "5m"
 listener.tcp.external.max_subscriptions = 0
 listener.tcp.external.shared_subscription = true
+
+## Disable default listeners that collide with node 2 on the same host, and
+## with a harness-managed broker when the test runs without --no-broker.
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false

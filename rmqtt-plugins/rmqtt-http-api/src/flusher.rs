@@ -191,7 +191,7 @@ async fn recover_one_cache(
             if let Some(entry) = cache.write().await.get_mut(ts) {
                 entry.flags = EntryFlags::new(EntryFlags::NONE);
             }
-            let _ = UNPERSISTED_COUNT.fetch_update(Ordering::Release, Ordering::Acquire, |v| {
+            let _ = UNPERSISTED_COUNT.try_update(Ordering::Release, Ordering::Acquire, |v| {
                 if v > 0 {
                     Some(v - 1)
                 } else {

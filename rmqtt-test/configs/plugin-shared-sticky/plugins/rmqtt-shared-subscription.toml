@@ -1,0 +1,3 @@
+## `sticky`: one fixed subscriber per publisher, kept in an LRU map.
+strategy = "sticky"
+sticky_cache_size = 10_000

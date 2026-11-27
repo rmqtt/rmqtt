@@ -17,11 +17,14 @@ use salvo::prelude::*;
 use anyhow::anyhow;
 use base64::prelude::{Engine, BASE64_STANDARD};
 use serde_json::{self, json};
+use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 use tokio::sync::oneshot;
 
 use rmqtt::{
     codec::v5::PublishProperties,
     context::ServerContext,
+    flapping::{BanInfo, BanQuery, Dimension},
     grpc::{
         GrpcClient, Message as GrpcMessage, MessageBroadcaster, MessageReply as GrpcMessageReply,
         MessageSender, MessageType,
@@ -31,10 +34,10 @@ use rmqtt::{
     node::{NodeInfo, NodeStatus},
     session::SessionState,
     stats::Stats,
-    types::NodeId,
+    topic::Topic,
     types::{
-        ClientId, CodecPublish, From, HashMap, Id, NodeHealthStatus, Publish, QoS, Retain, SubsSearchParams,
-        TopicFilter, TopicName, UserName,
+        ClientId, CodecPublish, DelayedPublishInfo, From, HashMap, Id, NodeHealthStatus, NodeId, Publish,
+        QoS, Retain, SubsSearchParams, TopicFilter, TopicName, UserName,
     },
     utils::timestamp_millis,
     Result,
@@ -46,28 +49,58 @@ use super::embed::DashboardAssets;
 use super::flusher::{HistoryCache, HistoryCaches};
 use super::prome::{Monitor, PROME_MONITOR};
 use super::types::{
-    ClientSearchParams, ClientSearchResult, FeatureConflict, FeatureValueGroup, Features, FeaturesInfo,
-    FeaturesInfoOrError, FeaturesSummary, HistoryData, HistoryQuery, Message, MessageReply,
-    PrometheusDataType, PublishParams, RetainInfo, RetainQueryParams, SubscribeParams, UnsubscribeParams,
+    ClientSearchParams, ClientSearchResult, DelayedPublishEntry, DelayedPublishQueryParams, FeatureConflict,
+    FeatureValueGroup, Features, FeaturesInfo, FeaturesInfoOrError, FeaturesSummary,
+    FlappingBannedQueryParams, HistoryData, HistoryQuery, Message, MessageReply, PrometheusDataType,
+    PublishParams, RetainInfo, RetainQueryParams, SubscribeParams, UnsubscribeParams,
 };
 use super::{clients, plugin, prome, subs, PluginConfigType};
 
 /// Depot key for the history caches + storage handle.
 const HISTORY_CACHES: &str = "HISTORY_CACHES";
 
+/// SHA-256 digest length in bytes.
+const SHA256_DIGEST_LEN: usize = 32;
+
+/// Compute the SHA-256 digest over the given byte slices, concatenated.
+fn sha256_digest(parts: &[&[u8]]) -> [u8; SHA256_DIGEST_LEN] {
+    let mut hasher = Sha256::new();
+    for part in parts {
+        hasher.update(part);
+    }
+    hasher.finalize().into()
+}
+
+/// Constant-time bearer token verification.
+///
+/// Both the expected and the provided value are digested to fixed 32-byte
+/// SHA-256 values before comparison, so neither the token content nor its
+/// length can be inferred from response timing (CWE-208 hardening).
+fn verify_bearer(expected: &[u8; SHA256_DIGEST_LEN], provided: Option<&HeaderValue>) -> bool {
+    provided
+        .map(|value| {
+            let provided_digest = sha256_digest(&[value.as_bytes()]);
+            bool::from(provided_digest.ct_eq(expected))
+        })
+        .unwrap_or(false)
+}
+
 struct BearerValidator {
-    token: String,
+    // Fixed-length SHA-256 digest of the expected "Bearer {token}" value.
+    // Comparing digests instead of raw bytes makes the check constant-time
+    // with respect to both token content and token length.
+    expected_digest: [u8; SHA256_DIGEST_LEN],
 }
 impl BearerValidator {
     pub fn new(token: &str) -> Self {
-        Self { token: format!("Bearer {token}") }
+        Self { expected_digest: sha256_digest(&[b"Bearer ", token.as_bytes()]) }
     }
 }
 
 #[async_trait]
 impl Handler for BearerValidator {
     async fn handle(&self, req: &mut Request, depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCtrl) {
-        if req.headers().get("authorization").is_some_and(|token| token == &self.token) {
+        if verify_bearer(&self.expected_digest, req.headers().get("authorization")) {
             ctrl.call_next(req, depot, res).await;
         } else {
             res.status_code(StatusCode::UNAUTHORIZED);
@@ -123,7 +156,16 @@ fn route(
                 .push(Router::with_path("{clientid}").get(get_client_subscriptions)),
         )
         .push(Router::with_path("routes").get(get_routes).push(Router::with_path("{topic}").get(get_route)))
+        .push(
+            Router::with_path("flapping")
+                .push(Router::with_path("banned").get(get_flapping_banned).delete(delete_flapping_ban)),
+        )
         .push(Router::with_path("retains").get(get_retains).delete(delete_retain))
+        .push(
+            Router::with_path("delayed_publishs")
+                .get(get_delayed_publishs)
+                .push(Router::with_path("detail").get(get_delayed_publish_detail)),
+        )
         .push(
             Router::with_path("mqtt")
                 .push(Router::with_path("publish").post(publish))
@@ -288,7 +330,7 @@ async fn list_apis(res: &mut Response) {
             "name": "get_features",
             "method": "GET",
             "path": "/api/v1/features[/{node}]",
-            "descr": "Returns the supported feature state (retain/message_storage/session_storage/delayed/shared_subscription/auto_subscription) of cluster nodes"
+            "descr": "Returns the supported feature state (retain/message_storage/session_storage/delayed/shared_subscription/auto_subscription/flapping) of cluster nodes"
         },
         {
             "name": "check_health",
@@ -358,6 +400,18 @@ async fn list_apis(res: &mut Response) {
             "descr": "Get routing information from the cluster"
         },
         {
+            "name": "get_flapping_banned",
+            "method": "GET",
+            "path": "/api/v1/flapping/banned",
+            "descr": "List the connection bans the flapping plugin enforces on this node, filtered by dimension/key"
+        },
+        {
+            "name": "delete_flapping_ban",
+            "method": "DELETE",
+            "path": "/api/v1/flapping/banned",
+            "descr": "Lift one connection ban by hand (dimension and key as query parameters)"
+        },
+        {
             "name": "get_retains",
             "method": "GET",
             "path": "/api/v1/retains",
@@ -368,6 +422,18 @@ async fn list_apis(res: &mut Response) {
             "method": "DELETE",
             "path": "/api/v1/retains?topic={topic}",
             "descr": "Delete a retained message by exact topic (cluster-wide)"
+        },
+        {
+            "name": "get_delayed_publishs",
+            "method": "GET",
+            "path": "/api/v1/delayed_publishs",
+            "descr": "Query pending delayed publishes (metadata only) with optional topic_filter/offset/limit (cluster-wide)"
+        },
+        {
+            "name": "get_delayed_publish_detail",
+            "method": "GET",
+            "path": "/api/v1/delayed_publishs/detail",
+            "descr": "Fetch one pending delayed publish with full payload by composite key node_id/topic/expired_time/client_id (404 when fired)"
         },
 
         {
@@ -850,6 +916,7 @@ pub(crate) async fn build_features(scx: &ServerContext) -> FeaturesInfo {
             delayed: extends.delayed_sender().await.enable(),
             shared_subscription: extends.shared_subscription().await.is_supported(),
             auto_subscription: extends.auto_subscription().await.enable(),
+            flapping: extends.flapping().await.available(),
         },
     }
 }
@@ -949,13 +1016,14 @@ type FeatureGetter = (&'static str, fn(&Features) -> bool);
 /// when some nodes report `true` while others report `false`.
 #[inline]
 fn summarize_features(successes: &[FeaturesInfo]) -> (bool, Vec<FeatureConflict>) {
-    let feature_getters: [FeatureGetter; 6] = [
+    let feature_getters: [FeatureGetter; 7] = [
         ("retain", |f| f.retain),
         ("message_storage", |f| f.message_storage),
         ("session_storage", |f| f.session_storage),
         ("delayed", |f| f.delayed),
         ("shared_subscription", |f| f.shared_subscription),
         ("auto_subscription", |f| f.auto_subscription),
+        ("flapping", |f| f.flapping),
     ];
 
     let mut conflicts = Vec::new();
@@ -1554,6 +1622,283 @@ async fn get_retains(
     };
 
     res.render(Json(json!({"items": items, "has_more": has_more})));
+    Ok(())
+}
+
+/// Query pending delayed publishes across the cluster with an optional topic
+/// filter and pagination.
+///
+/// Query parameters:
+/// - `topic_filter`: MQTT topic filter with `#` / `+` wildcards, matched
+///   against the target topic (the `$delayed/<interval>/` prefix is stripped).
+///   Empty or `#` means all messages. Invalid filters return 400.
+/// - `offset`: pagination offset (default `0`).
+/// - `limit`: page size (default and cap: `max_row_limit`).
+///
+/// Response: `{ "items": [DelayedPublishEntry...], "has_more": bool }`.
+///
+/// Cluster semantics: delayed publishes are node-local (in-memory heap on the
+/// receiving node, not synced or persisted), so the query fans out to every
+/// remote node through `DelayedPublishsQuery` and merges the results. Metadata
+/// only — payload content is never returned. Nodes that fail to respond are
+/// skipped with a warning (consistent with other cluster-wide endpoints).
+#[handler]
+async fn get_delayed_publishs(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let message_type = cfg.read().await.message_type;
+    let max_row_limit = cfg.read().await.max_row_limit;
+    let mut q = match req.parse_queries::<DelayedPublishQueryParams>() {
+        Ok(q) => q,
+        Err(e) => {
+            res.render(StatusError::bad_request().detail(e.to_string()));
+            return Ok(());
+        }
+    };
+    if q.limit == 0 || q.limit > max_row_limit {
+        q.limit = max_row_limit;
+    }
+
+    // Validate the topic filter up front; empty and "#" mean all messages.
+    let topic_filter = q.topic_filter.trim().to_string();
+    if !topic_filter.is_empty() && topic_filter != "#" && topic_filter.parse::<Topic>().is_err() {
+        res.render(StatusError::bad_request().detail(format!("invalid topic_filter: {topic_filter}")));
+        return Ok(());
+    }
+    let filter_opt = if topic_filter.is_empty() { None } else { Some(topic_filter) };
+
+    // Local node data (delayed publishes live in this node's heap).
+    let node_id = scx.node.id();
+    let mut entries: Vec<(NodeId, DelayedPublishInfo)> = scx
+        .extends
+        .delayed_sender()
+        .await
+        .list(filter_opt.as_deref(), max_row_limit)
+        .await
+        .into_iter()
+        .map(|info| (node_id, info))
+        .collect();
+    let mut cap_saturated = entries.len() >= max_row_limit;
+
+    // Remote nodes.
+    let grpc_clients = scx.extends.shared().await.get_grpc_clients();
+    if !grpc_clients.is_empty() {
+        let msg =
+            match (Message::DelayedPublishsQuery { topic_filter: filter_opt.clone(), max: max_row_limit })
+                .encode()
+            {
+                Ok(m) => m,
+                Err(e) => {
+                    res.render(StatusError::service_unavailable().detail(e.to_string()));
+                    return Ok(());
+                }
+            };
+        for (id, (_addr, c)) in grpc_clients.iter() {
+            let reply = MessageSender::new_quick(
+                c.clone(),
+                message_type,
+                GrpcMessage::Data(msg.clone()),
+                Some(Duration::from_secs(10)),
+            )
+            .send()
+            .await;
+            match reply {
+                Ok(GrpcMessageReply::Data(data)) => {
+                    match MessageReply::decode(&data) {
+                        Ok(MessageReply::DelayedPublishsReply(items)) => {
+                            if items.len() >= max_row_limit {
+                                cap_saturated = true;
+                            }
+                            entries.extend(items.into_iter().map(|info| (*id, info)));
+                        }
+                        Ok(reply) => {
+                            log::warn!("Get DelayedPublishsQuery from other node({id}), unreachable reply: {reply:?}");
+                        }
+                        Err(e) => {
+                            log::warn!("Decode DelayedPublishsReply from other node({id}), error: {e}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Get GrpcMessage::DelayedPublishsQuery from other node({id}), error: {e}");
+                }
+                Ok(reply) => {
+                    log::warn!("Get DelayedPublishsQuery from other node({id}), reply: {reply:?}");
+                }
+            }
+        }
+    }
+
+    let (items, has_more) = merge_delayed_publishs(entries, q.offset, q.limit, cap_saturated);
+    res.render(Json(json!({ "items": items, "has_more": has_more })));
+    Ok(())
+}
+
+/// Sort pending delayed publishes by trigger time (oldest first, topic as
+/// tie-breaker), then apply the global pagination window.
+///
+/// `cap_saturated` marks a node fetch that returned exactly the per-node cap,
+/// meaning its data may be truncated; in that case `has_more` is conservatively
+/// set to `true` because the merged total is incomplete.
+fn merge_delayed_publishs(
+    entries: Vec<(NodeId, DelayedPublishInfo)>,
+    offset: usize,
+    limit: usize,
+    cap_saturated: bool,
+) -> (Vec<DelayedPublishEntry>, bool) {
+    let mut entries = entries;
+    entries.sort_by(|a, b| a.1.expired_time.cmp(&b.1.expired_time).then(a.1.topic.cmp(&b.1.topic)));
+    let total = entries.len();
+    let has_more = cap_saturated || offset + limit < total;
+    let items = entries
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(|(node_id, info)| DelayedPublishEntry {
+            node_id,
+            topic: info.topic,
+            delay_interval: info.delay_interval,
+            expired_time: info.expired_time,
+            client_id: info.client_id.map(|c| c.to_string()),
+            username: info.username.map(|u| u.to_string()),
+            qos: info.qos,
+            retain: info.retain,
+            payload_len: info.payload_len,
+        })
+        .collect();
+    (items, has_more)
+}
+
+/// Fetch one pending delayed publish with its full payload content (on demand).
+///
+/// Query parameters (composite key, mirroring the list entries):
+/// - `node_id`: node holding the message (required).
+/// - `topic`: exact target topic, `$delayed/` prefix already stripped (required).
+/// - `expired_time`: trigger timestamp in millis (required).
+/// - `client_id`: publisher client id (optional filter).
+///
+/// The local node queries its in-memory heap directly; remote nodes are
+/// queried with a targeted (non-broadcast) gRPC message. The payload is
+/// returned base64-encoded. 404 when the message has fired / does not exist
+/// on the queried node.
+#[handler]
+async fn get_delayed_publish_detail(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let message_type = cfg.read().await.message_type;
+
+    let node_id = match req.query::<NodeId>("node_id") {
+        Some(id) => id,
+        None => {
+            res.render(StatusError::bad_request().detail("node_id is required"));
+            return Ok(());
+        }
+    };
+    let topic = match req.query::<String>("topic") {
+        Some(t) if !t.trim().is_empty() => t.trim().to_string(),
+        _ => {
+            res.render(StatusError::bad_request().detail("topic is required"));
+            return Ok(());
+        }
+    };
+    let expired_time = match req.query::<i64>("expired_time") {
+        Some(t) => t,
+        None => {
+            res.render(StatusError::bad_request().detail("expired_time is required"));
+            return Ok(());
+        }
+    };
+    let client_id = req.query::<String>("client_id").filter(|c| !c.trim().is_empty());
+
+    let detail = if node_id == scx.node.id() {
+        scx.extends.delayed_sender().await.find(&topic, expired_time, client_id.as_deref()).await
+    } else {
+        let grpc_clients = scx.extends.shared().await.get_grpc_clients();
+        match grpc_clients.get(&node_id) {
+            Some((_addr, c)) => {
+                let msg = match (Message::DelayedPublishsGet {
+                    topic: topic.clone(),
+                    expired_time,
+                    client_id: client_id.clone(),
+                })
+                .encode()
+                {
+                    Ok(m) => m,
+                    Err(e) => {
+                        res.render(StatusError::service_unavailable().detail(e.to_string()));
+                        return Ok(());
+                    }
+                };
+                let reply = MessageSender::new_quick(
+                    c.clone(),
+                    message_type,
+                    GrpcMessage::Data(msg),
+                    Some(Duration::from_secs(10)),
+                )
+                .send()
+                .await;
+                match reply {
+                    Ok(GrpcMessageReply::Data(data)) => match MessageReply::decode(&data) {
+                        Ok(MessageReply::DelayedPublishsGetReply(detail)) => detail,
+                        Ok(reply) => {
+                            log::warn!(
+                                "Get DelayedPublishsGet from other node({node_id}), unreachable reply: {reply:?}"
+                            );
+                            None
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "Decode DelayedPublishsGetReply from other node({node_id}), error: {e}"
+                            );
+                            None
+                        }
+                    },
+                    Err(e) => {
+                        res.render(
+                            StatusError::service_unavailable()
+                                .detail(format!("node({node_id}) unreachable: {e}")),
+                        );
+                        return Ok(());
+                    }
+                    Ok(reply) => {
+                        log::warn!("Get DelayedPublishsGet from other node({node_id}), reply: {reply:?}");
+                        None
+                    }
+                }
+            }
+            None => {
+                res.render(StatusError::not_found().detail(format!("node({node_id}) not found in cluster")));
+                return Ok(());
+            }
+        }
+    };
+
+    match detail {
+        Some(d) => {
+            let info = d.info;
+            res.render(Json(json!({
+                "node_id": node_id,
+                "topic": info.topic,
+                "delay_interval": info.delay_interval,
+                "expired_time": info.expired_time,
+                "client_id": info.client_id,
+                "username": info.username,
+                "qos": info.qos,
+                "retain": info.retain,
+                "payload_len": info.payload_len,
+                "payload": BASE64_STANDARD.encode(d.payload),
+            })));
+        }
+        None => {
+            res.render(StatusError::not_found().detail("delayed publish not found (may have fired)"));
+        }
+    }
     Ok(())
 }
 
@@ -3005,15 +3350,17 @@ async fn get_stats_history(
             });
             res.render(Json(result));
         } else {
-            let msg_encoded =
-                Message::StatsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
-                    .encode()
-                    .unwrap_or_default();
-            let local_node_id = scx.node.id();
-            let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
-            let results =
-                query_history_all_nodes(scx, message_type, &hc.stats, &params, msg_encoded, local_node_id)
-                    .await;
+            let params =
+                HistoryQueryParams { start_ts, end_ts, fetch_limit: limit, interval_ms, merge_window };
+            let results = query_history_all_nodes(
+                scx,
+                message_type,
+                HistoryKind::Stats,
+                &hc.stats,
+                &params,
+                scx.node.id(),
+            )
+            .await;
             res.render(Json(json!({
                 "from": start_ts,
                 "to": end_ts,
@@ -3042,20 +3389,18 @@ async fn get_stats_history_sum(
     let (start_ts, end_ts, limit, merge_window) = { parse_time_params(req) };
 
     if let Some(ref hc) = hc {
-        let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
-        let nodes_data = query_history_all_nodes(
-            scx,
-            message_type,
-            &hc.stats,
-            &params,
-            Message::StatsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
-                .encode()
-                .unwrap_or_default(),
-            scx.node.id(),
-        )
-        .await;
+        let params = HistoryQueryParams {
+            start_ts,
+            end_ts,
+            fetch_limit: limit + HISTORY_FETCH_MARGIN,
+            interval_ms,
+            merge_window,
+        };
+        let nodes_data =
+            query_history_all_nodes(scx, message_type, HistoryKind::Stats, &hc.stats, &params, scx.node.id())
+                .await;
 
-        let (aggregated, node_count) = aggregate_history_data(&nodes_data);
+        let (aggregated, node_count) = aggregate_history_data(&nodes_data, limit);
         res.render(Json(json!({
             "from": start_ts,
             "to": end_ts,
@@ -3110,15 +3455,14 @@ async fn get_metrics_history(
             });
             res.render(Json(result));
         } else {
-            let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
+            let params =
+                HistoryQueryParams { start_ts, end_ts, fetch_limit: limit, interval_ms, merge_window };
             let results = query_history_all_nodes(
                 scx,
                 message_type,
+                HistoryKind::Metrics,
                 &hc.metrics,
                 &params,
-                Message::MetricsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
-                    .encode()
-                    .unwrap_or_default(),
                 scx.node.id(),
             )
             .await;
@@ -3150,20 +3494,24 @@ async fn get_metrics_history_sum(
     let (start_ts, end_ts, limit, merge_window) = { parse_time_params(req) };
 
     if let Some(ref hc) = hc {
-        let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
+        let params = HistoryQueryParams {
+            start_ts,
+            end_ts,
+            fetch_limit: limit + HISTORY_FETCH_MARGIN,
+            interval_ms,
+            merge_window,
+        };
         let nodes_data = query_history_all_nodes(
             scx,
             message_type,
+            HistoryKind::Metrics,
             &hc.metrics,
             &params,
-            Message::MetricsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
-                .encode()
-                .unwrap_or_default(),
             scx.node.id(),
         )
         .await;
 
-        let (aggregated, node_count) = aggregate_history_data(&nodes_data);
+        let (aggregated, node_count) = aggregate_history_data(&nodes_data, limit);
         res.render(Json(json!({
             "from": start_ts,
             "to": end_ts,
@@ -3241,12 +3589,45 @@ async fn query_history_remote(
     HistoryData { node: node_id, from: 0, to: 0, count: 0, data: vec![] }
 }
 
+/// Extra buckets requested from every node on top of the caller's `limit`.
+///
+/// Each node truncates its own result to the requested `limit` *before* the
+/// requester unions timestamps across nodes (`query_history_all_nodes`), and
+/// nodes flush independently, so their newest usable bucket can differ by one
+/// slot. The union then contains edge buckets that only a subset of nodes
+/// contributed to; summing those yields a *partial* sum, which the dashboard
+/// turns into a huge spike when it differentiates the cumulative counters.
+/// Fetching a small surplus keeps `limit` buckets that every node backs.
+const HISTORY_FETCH_MARGIN: usize = 2;
+
+/// Which history series a request targets — mirrors the two gRPC message
+/// variants so the requester can encode a remote query for a given kind.
+#[derive(Copy, Clone)]
+enum HistoryKind {
+    Stats,
+    Metrics,
+}
+
+impl HistoryKind {
+    fn encode(self, q: HistoryQuery) -> Vec<u8> {
+        let msg = match self {
+            Self::Stats => Message::StatsHistoryQuery(q),
+            Self::Metrics => Message::MetricsHistoryQuery(q),
+        };
+        msg.encode().unwrap_or_default()
+    }
+}
+
 /// Query parameters shared by stats/metrics history lookups.
 #[derive(Copy, Clone)]
 struct HistoryQueryParams {
     start_ts: u64,
     end_ts: u64,
-    limit: usize,
+    /// Maximum number of buckets each individual node is asked for. The caller
+    /// sets this to its own `limit` plus `HISTORY_FETCH_MARGIN`; the surplus
+    /// exists so that dropping partially-contributed edge buckets still leaves
+    /// `limit` complete ones.
+    fetch_limit: usize,
     interval_ms: u64,
     merge_window: Option<u64>,
 }
@@ -3254,15 +3635,15 @@ struct HistoryQueryParams {
 /// Queries all known nodes (local + remote via gRPC broadcast) and returns
 /// a map of `node_id → HistoryData`.
 ///
-/// The caller must provide a `msg_encoded` (a pre-encoded `Message` for the
-/// remote side) and a `extract_fn` that picks the correct `HistoryData`
-/// variant from a decoded `MessageReply`.
+/// Every node is asked for `params.fetch_limit` buckets (the caller's `limit`
+/// plus `HISTORY_FETCH_MARGIN`) so that `aggregate_history_data` can discard the
+/// partially-contributed edge buckets and still return `limit` complete ones.
 async fn query_history_all_nodes(
     scx: &ServerContext,
     message_type: MessageType,
+    kind: HistoryKind,
     cache: &HistoryCache,
     params: &HistoryQueryParams,
-    msg_encoded: Vec<u8>,
     local_node_id: NodeId,
 ) -> HashMap<NodeId, HistoryData> {
     let mut nodes = HashMap::default();
@@ -3273,7 +3654,7 @@ async fn query_history_all_nodes(
         local_node_id,
         params.start_ts,
         params.end_ts,
-        params.limit,
+        params.fetch_limit,
         params.interval_ms,
         params.merge_window,
     )
@@ -3283,6 +3664,12 @@ async fn query_history_all_nodes(
     // 2. Broadcast to all remote nodes.
     let grpc_clients = scx.extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
+        let msg_encoded = kind.encode(HistoryQuery {
+            start_ts: params.start_ts,
+            end_ts: params.end_ts,
+            limit: params.fetch_limit,
+            merge_window: params.merge_window,
+        });
         for reply in MessageBroadcaster::new_quick(
             grpc_clients,
             message_type,
@@ -3328,12 +3715,32 @@ async fn query_history_all_nodes(
 /// Numeric fields are summed across nodes at each timestamp, except for
 /// cluster-wide fields that all nodes report identically (the shared topic /
 /// route tables): those take the maximum instead of a sum.
+///
+/// Timestamps that were not contributed by every node are **dropped**: a
+/// partial sum is not a valid sample. Because nodes flush independently, the
+/// newest bucket a node has available can differ from its peers by one slot,
+/// and the union of independently truncated per-node windows always exposes
+/// such buckets at its edges. Keeping them would silently under-report the
+/// counter (e.g. 1/3 of the real value), which is far more harmful to a
+/// dashboard than a missing point.
+///
+/// If any node returned no data at all for the window (a node restarted inside
+/// the queried range, for example) the completeness requirement is skipped so
+/// the remaining nodes still produce a usable series.
+///
+/// The result is sorted newest-first and truncated to `limit`.
 /// Returns `(data_points, node_count)`.
-fn aggregate_history_data(nodes_data: &HashMap<NodeId, HistoryData>) -> (Vec<serde_json::Value>, usize) {
+fn aggregate_history_data(
+    nodes_data: &HashMap<NodeId, HistoryData>,
+    limit: usize,
+) -> (Vec<serde_json::Value>, usize) {
     let node_count = nodes_data.len();
     if node_count == 0 {
         return (vec![], 0);
     }
+
+    // Number of nodes a timestamp must be present in to count as complete.
+    let complete_required = if nodes_data.values().any(|d| d.data.is_empty()) { 0 } else { node_count };
 
     // Cluster-shared quantities: every node reports the same value for the
     // shared topic/route tables, so summing would over-count (N nodes → N×).
@@ -3354,6 +3761,11 @@ fn aggregate_history_data(nodes_data: &HashMap<NodeId, HistoryData>) -> (Vec<ser
     // For each unique timestamp, merge all numeric fields.
     let mut result: Vec<(u64, serde_json::Value)> = Vec::with_capacity(grouped.len());
     for (ts, points) in grouped {
+        // A node reports at most one point per timestamp, so the point count is
+        // exactly the number of nodes that contributed to this bucket.
+        if complete_required > 0 && points.len() < complete_required {
+            continue;
+        }
         let mut merged = serde_json::Map::new();
         merged.insert("ts".into(), json!(ts));
 
@@ -3386,9 +3798,434 @@ fn aggregate_history_data(nodes_data: &HashMap<NodeId, HistoryData>) -> (Vec<ser
         result.push((ts, serde_json::Value::Object(merged)));
     }
 
-    // Sort descending by timestamp.
+    // Sort descending by timestamp, then apply the caller's limit globally: the
+    // per-node limit only bounds each node's own result, so the union can hold
+    // more buckets than the caller asked for.
     result.sort_by_key(|b| std::cmp::Reverse(b.0));
+    result.truncate(limit);
 
     let data: Vec<serde_json::Value> = result.into_iter().map(|(_, v)| v).collect();
     (data, node_count)
+}
+
+/// List the bans the flapping plugin enforces on *this* node.
+///
+/// The ban table lives in the node that refuses the connection — nothing ties a
+/// ClientId to a node — so this endpoint answers for one node instead of
+/// aggregating the cluster: an aggregate would advertise bans this node does
+/// not enforce.
+///
+/// Query params: `dimension` (`clientid`/`username`/`peerhost`), `key` (exact
+/// match), `offset`, `limit`.
+///
+/// A gate that is not installed, or is installed but switched off, is answered
+/// with an empty page and `available: false` instead of an error: the list is
+/// genuinely empty, and the flag is what keeps that apart from "the gate is
+/// screening and nothing is banned". `GET /api/v1/features` reports the same
+/// state under `flapping`, for a caller that would rather ask once.
+#[handler]
+async fn get_flapping_banned(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let max_row_limit = cfg.read().await.max_row_limit;
+
+    let mut q = match req.parse_queries::<FlappingBannedQueryParams>() {
+        Ok(q) => q,
+        Err(e) => {
+            res.render(StatusError::bad_request().detail(e.to_string()));
+            return Ok(());
+        }
+    };
+    if q.limit == 0 || q.limit > max_row_limit {
+        q.limit = max_row_limit;
+    }
+
+    let dimension = match flapping_dimension(&q.dimension) {
+        Ok(dimension) => dimension,
+        Err(msg) => {
+            res.render(StatusError::bad_request().detail(msg));
+            return Ok(());
+        }
+    };
+
+    let flapping = scx.extends.flapping().await;
+    let available = flapping.available();
+
+    let key = if q.key.is_empty() { None } else { Some(q.key.clone()) };
+    // One row beyond the page is what tells `has_more` apart from a page that
+    // merely happens to be exactly full.
+    let query = BanQuery { dimension, key, offset: q.offset, limit: q.limit.saturating_add(1) };
+    let (items, has_more) = paginate_bans(flapping.banned(query).await, q.limit);
+    let banned_count = flapping.banned_count().await;
+    // `available` leads: while it is `false` every other field is truthful but
+    // uninformative, and a reader that stops at the first field is told so.
+    res.render(Json(json!({
+        "available": available,
+        "items": items,
+        "has_more": has_more,
+        "banned_count": banned_count,
+    })));
+    Ok(())
+}
+
+/// Lift one ban by hand.
+///
+/// `dimension` and `key` are both required and both travel as query parameters,
+/// never as path segments: the key is exact-matched as typed (a ClientId may
+/// legally begin or end with a space), and it can contain `/`.
+///
+/// Lifting a ban that is not there is a `404`, and that includes every ban of a
+/// gate which is not screening: with no gate installed there is nothing to
+/// lift.
+#[handler]
+async fn delete_flapping_ban(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let (scx, _cfg) = get_scx_cfg(depot)?;
+
+    let dimension = match req.query::<String>("dimension") {
+        Some(text) => match Dimension::parse(text.trim()) {
+            Some(dimension) => dimension,
+            None => {
+                res.render(StatusError::bad_request().detail(format!(
+                    "invalid dimension: {text}, expected one of clientid, username, peerhost"
+                )));
+                return Ok(());
+            }
+        },
+        None => {
+            res.render(
+                StatusError::bad_request().detail("dimension is required (clientid|username|peerhost)"),
+            );
+            return Ok(());
+        }
+    };
+
+    let key = match req.query::<String>("key") {
+        Some(key) if !key.is_empty() => key,
+        _ => {
+            res.render(StatusError::bad_request().detail("key is required and must not be empty"));
+            return Ok(());
+        }
+    };
+
+    let flapping = scx.extends.flapping().await;
+    // No `available()` guard here. A gate that is not screening holds no bans,
+    // so there is nothing to lift — which is what the `404` below already says,
+    // and saying it once keeps this endpoint free of a `5xx` for a state the
+    // operator chose.
+    if !flapping.unban(dimension, &key).await {
+        res.render(StatusError::not_found().detail(format!("no ban on {} '{key}'", dimension.as_str())));
+        return Ok(());
+    }
+
+    log::info!("HTTP API lifted the flapping ban on {} '{key}'", dimension.as_str());
+    res.render(Json(json!({ "dimension": dimension, "key": key, "unbanned": true })));
+    Ok(())
+}
+
+/// Splits the one extra row back off the page it was fetched to detect.
+fn paginate_bans(mut page: Vec<BanInfo>, limit: usize) -> (Vec<BanInfo>, bool) {
+    let has_more = page.len() > limit;
+    page.truncate(limit);
+    (page, has_more)
+}
+
+/// Parses the `dimension` query parameter. An empty string means "every
+/// dimension"; an unknown name is an error rather than a silently ignored
+/// filter, because this is the one selector an operator types by hand.
+fn flapping_dimension(text: &str) -> std::result::Result<Option<Dimension>, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    Dimension::parse(text)
+        .map(Some)
+        .ok_or_else(|| format!("invalid dimension: {text}, expected one of clientid, username, peerhost"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A page that comes back exactly full must not claim there is more: the
+    /// caller fetches one row beyond the page precisely to tell the two apart.
+    #[test]
+    fn flapping_page_reports_has_more_from_the_extra_row() {
+        let entry = || BanInfo {
+            dimension: Dimension::ClientId,
+            key: "dev-1".to_string(),
+            count: 3,
+            banned_at: "2026-01-01 00:00:00.000".to_string(),
+            banned_until: "2026-01-01 00:05:00.000".to_string(),
+            remaining_ms: 1_000,
+            last_clientid: None,
+            last_ipaddress: None,
+        };
+
+        let (items, has_more) = paginate_bans(vec![entry(); 3], 2);
+        assert_eq!(items.len(), 2);
+        assert!(has_more);
+
+        let (items, has_more) = paginate_bans(vec![entry(); 2], 2);
+        assert_eq!(items.len(), 2);
+        assert!(!has_more);
+
+        let (items, has_more) = paginate_bans(vec![], 2);
+        assert!(items.is_empty());
+        assert!(!has_more);
+    }
+
+    /// The dimension is the one selector an operator types by hand, so an
+    /// unknown name is rejected instead of being treated as "every dimension".
+    #[test]
+    fn flapping_dimension_names_are_parsed_strictly() {
+        assert_eq!(flapping_dimension("").unwrap(), None);
+        assert_eq!(flapping_dimension("   ").unwrap(), None);
+        assert_eq!(flapping_dimension("clientid").unwrap(), Some(Dimension::ClientId));
+        assert_eq!(flapping_dimension(" peerhost ").unwrap(), Some(Dimension::PeerHost));
+        assert!(flapping_dimension("ClientId").is_err());
+        assert!(flapping_dimension("ip").is_err());
+    }
+
+    /// Build the expected digest the same way `BearerValidator::new` does.
+    fn expected_digest_for(token: &str) -> [u8; SHA256_DIGEST_LEN] {
+        sha256_digest(&[b"Bearer ", token.as_bytes()])
+    }
+
+    fn header(value: &str) -> Option<HeaderValue> {
+        Some(HeaderValue::from_str(value).expect("valid header value"))
+    }
+
+    #[test]
+    fn sha256_known_vector() {
+        // SHA-256 of the empty string.
+        assert_eq!(
+            sha256_digest(&[]),
+            [
+                0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9,
+                0x24, 0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52,
+                0xb8, 0x55,
+            ]
+        );
+        // SHA-256 of "abc".
+        assert_eq!(
+            sha256_digest(&[b"ab", b"c"]),
+            [
+                0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea, 0x41, 0x41, 0x40, 0xde, 0x5d, 0xae, 0x22,
+                0x23, 0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c, 0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00,
+                0x15, 0xad,
+            ]
+        );
+    }
+
+    #[test]
+    fn correct_token_passes() {
+        let expected = expected_digest_for("s3cret-token");
+        assert!(verify_bearer(&expected, header("Bearer s3cret-token").as_ref()));
+    }
+
+    #[test]
+    fn wrong_token_fails() {
+        let expected = expected_digest_for("s3cret-token");
+        assert!(!verify_bearer(&expected, header("Bearer wrong-token").as_ref()));
+    }
+
+    #[test]
+    fn missing_header_fails() {
+        let expected = expected_digest_for("s3cret-token");
+        assert!(!verify_bearer(&expected, None));
+    }
+
+    #[test]
+    fn empty_header_fails() {
+        let expected = expected_digest_for("s3cret-token");
+        assert!(!verify_bearer(&expected, header("").as_ref()));
+    }
+
+    #[test]
+    fn prefix_token_fails() {
+        // First k bytes match the expected value, remainder differs.
+        // (Previously an early-exit path in the plain `==` comparison.)
+        let expected = expected_digest_for("s3cret-token");
+        assert!(!verify_bearer(&expected, header("Bearer s3cret-tokXX").as_ref()));
+    }
+
+    #[test]
+    fn truncated_token_fails() {
+        // Provided value is a prefix of the expected value.
+        // (Previously a length short-circuit that leaked the token length.)
+        let expected = expected_digest_for("s3cret-token");
+        assert!(!verify_bearer(&expected, header("Bearer s3cret").as_ref()));
+    }
+
+    #[test]
+    fn longer_token_fails() {
+        // Provided value extends the expected value.
+        let expected = expected_digest_for("s3cret");
+        assert!(!verify_bearer(&expected, header("Bearer s3cret-token").as_ref()));
+    }
+
+    #[test]
+    fn no_scheme_fails() {
+        // Raw token without the "Bearer " prefix must not authenticate.
+        let expected = expected_digest_for("s3cret-token");
+        assert!(!verify_bearer(&expected, header("s3cret-token").as_ref()));
+    }
+
+    #[test]
+    fn case_sensitive_prefix_fails() {
+        // Scheme case differs; kept byte-exact to preserve previous behavior.
+        let expected = expected_digest_for("s3cret-token");
+        assert!(!verify_bearer(&expected, header("bearer s3cret-token").as_ref()));
+    }
+
+    // ── aggregate_history_data ─────────────────────────────────────────
+
+    fn node_data(node: NodeId, buckets: &[(u64, i64)]) -> HistoryData {
+        // Newest-first, mirroring what `query_history_local` returns.
+        let data = buckets
+            .iter()
+            .rev()
+            .map(|(ts, v)| json!({ "ts": ts, "messages.publish": v, "topics.count": 7 }))
+            .collect();
+        HistoryData { node, from: 0, to: 0, count: buckets.len(), data }
+    }
+
+    fn ts_of(points: &[serde_json::Value]) -> Vec<u64> {
+        points.iter().map(|p| p["ts"].as_u64().unwrap()).collect()
+    }
+
+    /// Reads a numeric field from the aggregated point.
+    ///
+    /// `aggregate_history_data` accumulates through `as_f64`, so every merged
+    /// numeric field is stored as a JSON float even when the inputs were
+    /// integers (`as_i64()` would return `None` on those).
+    fn val_of(points: &[serde_json::Value], ts: u64, key: &str) -> f64 {
+        let p = points.iter().find(|p| p["ts"].as_u64() == Some(ts)).expect("bucket present");
+        p[key].as_f64().expect("numeric field")
+    }
+
+    /// Nodes flush independently, so their newest usable bucket can differ by
+    /// one slot. The union then contains an edge bucket that only one node
+    /// backed; keeping it would report a partial sum (here 1000 instead of
+    /// 3000) and the dashboard turns that into a huge spike.
+    #[test]
+    fn aggregate_drops_partially_contributed_buckets() {
+        let mut nodes = HashMap::default();
+        nodes.insert(1, node_data(1, &[(1000, 3000), (2000, 3000), (3000, 3000), (4000, 3000)]));
+        // Node 2 has not flushed the newest slot yet, so bucket 4000 is backed
+        // by node 1 only.
+        nodes.insert(2, node_data(2, &[(1000, 1000), (2000, 1000), (3000, 1000)]));
+
+        let (data, node_count) = aggregate_history_data(&nodes, 10);
+        assert_eq!(node_count, 2);
+        assert_eq!(ts_of(&data), vec![3000, 2000, 1000]);
+        assert_eq!(val_of(&data, 3000, "messages.publish"), 4000.0);
+        assert_eq!(val_of(&data, 1000, "messages.publish"), 4000.0);
+        // Cluster-shared fields keep taking the maximum, not the sum.
+        assert_eq!(val_of(&data, 1000, "topics.count"), 7.0);
+    }
+
+    /// A node restarting inside the queried window must not blank the series.
+    #[test]
+    fn aggregate_keeps_series_when_a_node_has_no_data() {
+        let mut nodes = HashMap::default();
+        nodes.insert(1, node_data(1, &[(1000, 30), (2000, 30)]));
+        nodes.insert(2, HistoryData { node: 2, from: 0, to: 0, count: 0, data: vec![] });
+
+        let (data, _) = aggregate_history_data(&nodes, 10);
+        assert_eq!(ts_of(&data), vec![2000, 1000]);
+        assert_eq!(val_of(&data, 1000, "messages.publish"), 30.0);
+    }
+
+    /// `limit` is applied per node before the union, so the requester must
+    /// truncate globally instead of returning more buckets than asked for.
+    #[test]
+    fn aggregate_truncates_to_limit_newest_first() {
+        let mut nodes = HashMap::default();
+        nodes.insert(1, node_data(1, &[(1000, 1), (2000, 1), (3000, 1), (4000, 1)]));
+        nodes.insert(2, node_data(2, &[(1000, 1), (2000, 1), (3000, 1), (4000, 1)]));
+
+        let (data, _) = aggregate_history_data(&nodes, 2);
+        assert_eq!(ts_of(&data), vec![4000, 3000]);
+    }
+
+    #[test]
+    fn aggregate_returns_empty_for_no_nodes() {
+        let nodes: HashMap<NodeId, HistoryData> = HashMap::default();
+        let (data, node_count) = aggregate_history_data(&nodes, 5);
+        assert!(data.is_empty());
+        assert_eq!(node_count, 0);
+    }
+
+    // ── merge_delayed_publishs ─────────────────────────────────────────
+
+    fn dp_info(expired_at: i64, topic: &str) -> DelayedPublishInfo {
+        DelayedPublishInfo {
+            topic: TopicName::from(topic),
+            delay_interval: 10,
+            expired_time: expired_at,
+            client_id: Some(ClientId::from("client-1")),
+            username: None,
+            qos: 0,
+            retain: false,
+            payload_len: 11,
+        }
+    }
+
+    #[test]
+    fn merge_sorts_globally_and_paginates() {
+        let entries = vec![
+            (2, dp_info(2000, "b/t")),
+            (1, dp_info(1000, "a/t")),
+            (2, dp_info(5000, "e/t")),
+            (1, dp_info(4000, "d/t")),
+            (2, dp_info(3000, "c/t")),
+        ];
+        let (items, has_more) = merge_delayed_publishs(entries, 1, 2, false);
+        let seq: Vec<(u64, &str)> = items.iter().map(|e| (e.node_id, e.topic.as_ref())).collect();
+        assert_eq!(seq, vec![(2, "b/t"), (2, "c/t")]);
+        // offset 1 + limit 2 < total 5
+        assert!(has_more);
+    }
+
+    #[test]
+    fn merge_last_page_has_more_false() {
+        let entries = vec![(1, dp_info(1000, "a/t")), (2, dp_info(2000, "b/t"))];
+        let (items, has_more) = merge_delayed_publishs(entries, 1, 2, false);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].topic.to_string(), "b/t");
+        assert!(!has_more);
+    }
+
+    #[test]
+    fn merge_cap_saturated_forces_has_more() {
+        // A node fetch hit the per-node cap: the merged total is incomplete,
+        // so has_more must be conservatively true even on a fully-covered page.
+        let entries = vec![(1, dp_info(1000, "a/t"))];
+        let (items, has_more) = merge_delayed_publishs(entries, 0, 10, true);
+        assert_eq!(items.len(), 1);
+        assert!(has_more);
+    }
+
+    #[test]
+    fn merge_tie_breaks_by_topic_on_equal_expired_time() {
+        let entries = vec![(1, dp_info(1000, "z/t")), (2, dp_info(1000, "a/t"))];
+        let (items, _) = merge_delayed_publishs(entries, 0, 10, false);
+        let topics: Vec<&str> = items.iter().map(|e| e.topic.as_ref()).collect();
+        assert_eq!(topics, vec!["a/t", "z/t"]);
+    }
+
+    #[test]
+    fn merge_empty_entries_returns_empty_and_no_more() {
+        let (items, has_more) = merge_delayed_publishs(vec![], 0, 50, false);
+        assert!(items.is_empty());
+        assert!(!has_more);
+    }
 }

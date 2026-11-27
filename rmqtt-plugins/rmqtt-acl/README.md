@@ -4,11 +4,13 @@
 
 [![crates.io](https://img.shields.io/crates/v/rmqtt-acl.svg)](https://crates.io/crates/rmqtt-acl)
 
-File-based Access Control List plugin. Evaluates allow/deny rules to control client publish and subscribe access by user, IP address, client ID, and topic filter patterns.
+File-based Access Control List plugin. Evaluates allow/deny rules to control client connect, publish, and subscribe access by user, IP address, client ID, and topic filter patterns.
 
 ## Overview
 
 Rules are evaluated in order — the first matching rule determines the result. If no rule matches, access is denied by default. The plugin registers 5 hook callbacks covering authentication, ACL checks, and client lifecycle events.
+
+**Note**: this plugin also hooks `ClientAuthenticate` (connection phase). The default rule set ends with `["allow", "all"]`, whose omitted action column resolves to ALL operations **including connect** — see [Interaction with Authentication Plugins](#interaction-with-authentication-plugins) before enabling a custom auth plugin.
 
 ## Usage
 
@@ -98,7 +100,7 @@ The plugin loads config via `scx.plugins.load_config_default::<PluginConfig>("rm
 |-----------|---------|
 | `ClientConnected` | Pre-compute topic placeholders (`%c`, `%u`) and ACL rules per client |
 | `ClientDisconnected` | Clean up per-client cached topic filters |
-| `ClientAuthenticate` | Verify username/password against ACL rules |
+| `ClientAuthenticate` | Evaluate ACL rules for the connection: a matching `allow` rule allows it, a matching `deny` rule rejects it, and no matching rule denies it (`NotAuthorized`). Runs after auth plugins with higher hook priority (e.g. rmqtt-auth-http default priority = 100 vs this plugin's default 10) |
 | `ClientSubscribeCheckAcl` | Check subscribe ACL, return `SubscribeAclResult` |
 | `MessagePublishCheckAcl` | Check publish ACL, return `PublishAclResult` |
 

@@ -231,3 +231,56 @@ impl TestCase for SharedSubV5Test {
         Duration::from_secs(30)
     }
 }
+
+// ---------------------------------------------------------------------------
+// P1 gap-analysis additions (designs/mqtt-5.0-standalone-test-gap-analysis.md)
+// ---------------------------------------------------------------------------
+
+/// G20: a Shared Subscription Topic Filter MUST have the form
+/// `$share/{GroupName}/{TopicFilter}`; `$share/{GroupName}` (no filter part)
+/// violates MQTT-4.8.2-1 and must be rejected with a failure reason code in
+/// the SUBACK (e.g. 0x8F Topic Filter invalid).
+pub struct SharedSubV5MalformedFilterTest;
+
+impl TestCase for SharedSubV5MalformedFilterTest {
+    fn name(&self) -> &str {
+        "shared_sub_v5_malformed_filter"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result: anyhow::Result<()> = rt.block_on(async {
+            let mut client = crate::mqtt::v5::MqttV5Client::connect(
+                &ctx.config.broker_addr,
+                "share-bad",
+                ctx.config.connect_timeout,
+            )
+            .await?;
+
+            // "$share/onlygroup" has no topic filter after the group name.
+            let ack = client.subscribe("$share/onlygroup", QoS::AtLeastOnce).await?;
+            client.disconnect().await?;
+
+            match ack.status.first() {
+                Some(code) if (*code as u8) >= 0x80 => Ok(()),
+                Some(code) => Err(anyhow::anyhow!(
+                    "broker accepted a malformed shared subscription filter \
+                     \"$share/onlygroup\" (SUBACK reason 0x{:02X}) [MQTT-4.8.2-1]",
+                    *code as u8
+                )),
+                None => Err(anyhow::anyhow!(
+                    "SUBACK carried zero return codes for a malformed shared subscription"
+                )),
+            }
+        });
+        match result {
+            Ok(()) => TestResult::passed(self.name(), "functional_v5", start.elapsed()),
+            Err(e) => TestResult::failed(self.name(), "functional_v5", start.elapsed(), e.to_string()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(20)
+    }
+}

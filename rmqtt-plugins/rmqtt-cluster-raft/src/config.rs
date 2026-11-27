@@ -77,7 +77,8 @@ pub struct PluginConfig {
 }
 
 impl PluginConfig {
-    /// Returns the leader peer address if `leader_id` is set.
+    /// Returns the configured bootstrap leader's peer address, or `None`
+    /// when `leader_id` is 0 (no designated bootstrapper).
     #[inline]
     pub fn leader(&self) -> Result<Option<&NodeAddr>> {
         if self.leader_id == 0 {

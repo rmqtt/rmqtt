@@ -128,6 +128,7 @@
     "messages_publish": "प्रकाशित संदेश",
     "messages_delivered": "वितरित संदेश",
     "messages_discarded": "छोड़े गए संदेश",
+    "offline_saves_dropped": "Offline Persistence Drops",
     "subscriptions_count": "सब्सक्रिप्शन",
     "shared_subscriptions_count": "साझा सब्सक्रिप्शन",
     "status_title": "Status",
@@ -154,6 +155,7 @@
     "features_delayed": "विलंबित संदेश",
     "features_shared_subscription": "साझा सदस्यता",
     "features_auto_subscription": "स्वचालित सदस्यता",
+    "features_flapping": "फ़्लैपिंग सुरक्षा",
     "features_tab_title": "सुविधा समर्थन"
   },
   "gauge": {
@@ -302,7 +304,8 @@
     "dashboard": "डैशबोर्ड",
     "confirm": "पुष्टि करें",
     "cancel": "रद्द करें",
-    "confirm_title": "पुष्टि"
+    "confirm_title": "पुष्टि",
+    "copy": "कॉपी करें"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +355,43 @@
     "delete": "हटाएं",
     "delete_confirm": "क्या आप {topic} विषय का रखा गया संदेश हटाना चाहते हैं?",
     "delete_fail": "संदेश हटाने में विफल: {msg}"
+  },
+  "delayed": {
+    "not_enabled": "विलंबित प्रकाशन सक्षम नहीं है (rmqtt-delayed प्लगइन लोड करें)",
+    "topic_filter_placeholder": "टॉपिक फ़िल्टर (जैसे sensor/#, खाली = सभी)",
+    "topic": "टॉपिक",
+    "delay_interval": "विलंब अंतराल",
+    "fire_time": "ट्रिगर समय",
+    "remaining": "शेष समय",
+    "client_id": "क्लाइंट ID",
+    "username": "उपयोगकर्ता नाम",
+    "payload_size": "पेलोड आकार",
+    "node": "नोड",
+    "payload": "पेलोड सामग्री",
+    "not_found": "संदेश पहले ही भेज दिया गया है या अब मौजूद नहीं है",
+    "no_results": "कोई विलंबित प्रकाशन नहीं",
+    "view_payload": "Payload देखें"
+  },
+  "flapping": {
+    "not_enabled": "फ़्लैपिंग सुरक्षा सक्षम नहीं है (rmqtt-flapping प्लगइन लोड करें या enable = true सेट करें)",
+    "node_local": "प्रतिबंध नोड-स्थानीय हैं; यह सूची केवल उत्तर देने वाले नोड को दर्शाती है",
+    "banned_count": "सक्रिय प्रतिबंध",
+    "dimension": "आयाम",
+    "dimension_all": "सभी आयाम",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "उपयोगकर्ता नाम",
+    "dimension_peerhost": "स्रोत पता",
+    "key": "कुंजी",
+    "key_placeholder": "कुंजी (सटीक मिलान, जैसे ClientID / उपयोगकर्ता नाम / IP)",
+    "count": "प्रयास",
+    "banned_at": "प्रतिबंध समय",
+    "banned_until": "प्रतिबंध समाप्ति",
+    "remaining": "शेष",
+    "last_clientid": "अंतिम ClientID",
+    "last_ipaddress": "अंतिम स्रोत पता",
+    "unban": "प्रतिबंध हटाएँ",
+    "unban_confirm": "{dimension} \"{key}\" पर प्रतिबंध हटाएँ?",
+    "unban_fail": "प्रतिबंध हटाना विफल: {msg}",
+    "no_results": "कोई सक्रिय प्रतिबंध नहीं"
   }
 }

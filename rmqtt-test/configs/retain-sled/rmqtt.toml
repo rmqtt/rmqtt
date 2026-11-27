@@ -1,0 +1,89 @@
+##--------------------------------------------------------------------
+## rmqttd config for the retained-message restart-recovery test (G26)
+##
+## This config is used ONLY by a self-managed broker process started inside
+## the test itself (`retain_v311_restart_recovery` in retain_v311.rs), with
+## the `rmqtt-retainer` plugin using sled storage so retained messages
+## survive a broker restart.
+##
+## Ports are chosen to avoid the harness (1883/5363), the cluster tests
+## (1886-1890 / 5366-5370), the session-expiry-cleanup test (1884/5364),
+## rl-boundary (1891/5365) and the auth tests (1892-1893 / 5371-5372).
+##
+## Usage (run from the rmqtt repository root so that `plugins.dir`
+## resolves correctly); the broker is spawned by the test itself, no manual
+## start needed.
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+node.id = 1
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## RPC
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5374"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Log
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "."
+log.file = "rmqtt.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+# Self-contained: plugin configs live in this directory's plugins/ sub-dir.
+plugins.dir = "rmqtt-test/configs/retain-sled/plugins/"
+# rmqtt-retainer must be started so retained messages are stored (sled).
+plugins.default_startups = [
+    "rmqtt-retainer",
+]
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter", "rmqtt-http-api"]
+
+##--------------------------------------------------------------------
+## Listener (external TCP only; everything else disabled)
+##--------------------------------------------------------------------
+listener.tcp.external.addr = "127.0.0.1:1895"
+listener.tcp.external.workers = 8
+listener.tcp.external.max_connections = 102400
+listener.tcp.external.max_handshaking_limit = 500
+listener.tcp.external.handshake_timeout = "30s"
+# 512MB packet cap (kept from the rl-boundary skeleton; harmless here).
+listener.tcp.external.max_packet_size = "512MB"
+listener.tcp.external.backlog = 1024
+listener.tcp.external.allow_anonymous = true
+listener.tcp.external.min_keepalive = 0
+listener.tcp.external.keepalive_backoff = 0.75
+listener.tcp.external.max_inflight = 16
+listener.tcp.external.max_mqueue_len = 1000
+listener.tcp.external.mqueue_rate_limit = "1000,1s"
+listener.tcp.external.max_clientid_len = 65535
+listener.tcp.external.max_qos_allowed = 2
+listener.tcp.external.max_topic_levels = 0
+listener.tcp.external.session_expiry_interval = "5m"
+listener.tcp.external.message_retry_interval = "5s"
+listener.tcp.external.message_expiry_interval = "5m"
+listener.tcp.external.max_subscriptions = 0
+listener.tcp.external.shared_subscription = true
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled (would clash with other suites)
+##--------------------------------------------------------------------
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false

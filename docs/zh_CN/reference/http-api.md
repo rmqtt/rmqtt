@@ -32,6 +32,10 @@ prometheus_metrics_cache_interval = "5s"
 | `GET` | `/api/v1/subscriptions` | 订阅列表 |
 | `GET` | `/api/v1/routes` | 路由表 |
 | `GET` | `/api/v1/retains` | 查询保留消息 |
+| `GET` | `/api/v1/delayed_publishs` | 查询待触发延迟消息（元数据） |
+| `GET` | `/api/v1/delayed_publishs/detail` | 单条延迟消息详情（含 payload） |
+| `GET` | `/api/v1/flapping/banned` | 查询本节点的连接封禁（按维度/键过滤） |
+| `DELETE` | `/api/v1/flapping/banned` | 解除一条连接封禁 |
 | `POST` | `/api/v1/mqtt/publish` | 发布消息 |
 | `POST` | `/api/v1/mqtt/subscribe` | 订阅主题 |
 | `POST` | `/api/v1/mqtt/unsubscribe` | 取消订阅 |
@@ -41,7 +45,7 @@ prometheus_metrics_cache_interval = "5s"
 | `GET` | `/api/v1/metrics` | 指标（JSON） |
 | `GET` | `/api/v1/metrics/prometheus` | 指标（Prometheus 格式） |
 
-完整端点列表共 36 个（含 `stats/history`、`metrics/history` 等）。详情见英文版文档。
+完整端点列表共 38 个（含 `stats/history`、`metrics/history` 等）。详情见英文版文档。
 
 ## 许可证
 

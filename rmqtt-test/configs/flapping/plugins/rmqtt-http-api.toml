@@ -1,0 +1,29 @@
+##--------------------------------------------------------------------
+## rmqtt-http-api (connection-gate fixture)
+##--------------------------------------------------------------------
+## Serves the flapping management endpoints so a case can read the bans in
+## force and lift one by hand:
+##
+##   GET    /api/v1/flapping/banned?dimension=&key=&offset=&limit=
+##   DELETE /api/v1/flapping/banned?dimension=&key=
+##
+## `GET /api/v1/features` is also read: it carries the same "is a gate
+## screening" state as the `flapping` field of the feature summary, and the
+## case asserts both agree.
+##
+## No `http_bearer_token`: this fixture is bound to loopback and the case
+## under test is the extension slot the plugin installs, not authentication
+## (that path is covered by the http-api suite).
+##
+## Port 6066: belongs to this fixture alone (harness 6060, cluster stress
+## node 1 6061, flapping-order 6067, session-sled-stress 6070).
+##
+## No `storage` section: history persistence is disabled (the default redb
+## path under /var/log is not writable on all platforms).
+##
+## See more keys: https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
+
+max_row_limit = 10_000
+http_laddr = "0.0.0.0:6066"
+http_request_log = false
+prometheus_metrics_cache_interval = "1s"

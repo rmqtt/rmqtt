@@ -128,6 +128,7 @@
     "messages_publish": "Published Messages",
     "messages_delivered": "Delivered Messages",
     "messages_discarded": "Discarded Messages",
+    "offline_saves_dropped": "Offline Persistence Drops",
     "subscriptions_count": "Subscriptions",
     "shared_subscriptions_count": "Shared Subscriptions",
     "status_title": "Status",
@@ -154,6 +155,7 @@
     "features_delayed": "Delayed Messages",
     "features_shared_subscription": "Shared Subscriptions",
     "features_auto_subscription": "Auto Subscription",
+    "features_flapping": "Flapping Protection",
     "features_tab_title": "Feature Support"
   },
   "gauge": {
@@ -302,7 +304,8 @@
     "dashboard": "Dashboard",
     "confirm": "Confirm",
     "cancel": "Cancel",
-    "confirm_title": "Confirmation"
+    "confirm_title": "Confirmation",
+    "copy": "Copy"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +355,43 @@
     "delete": "Delete",
     "delete_confirm": "Delete retained message for topic {topic}?",
     "delete_fail": "Delete failed: {msg}"
+  },
+  "delayed": {
+    "not_enabled": "Delayed publish is not enabled (load the rmqtt-delayed plugin)",
+    "topic_filter_placeholder": "Topic filter (e.g. sensor/#, empty = all)",
+    "topic": "Topic",
+    "delay_interval": "Delay interval",
+    "fire_time": "Fire time",
+    "remaining": "Remaining",
+    "client_id": "Client ID",
+    "username": "Username",
+    "payload_size": "Payload size",
+    "node": "Node",
+    "payload": "Payload content",
+    "not_found": "Message has fired or no longer exists",
+    "no_results": "No delayed publishes",
+    "view_payload": "View Payload"
+  },
+  "flapping": {
+    "not_enabled": "Flapping protection is not enabled (load the rmqtt-flapping plugin, or set enable = true)",
+    "node_local": "Bans are per-node; this list reflects the node that answered",
+    "banned_count": "Bans in force",
+    "dimension": "Dimension",
+    "dimension_all": "All dimensions",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "Username",
+    "dimension_peerhost": "Peer address",
+    "key": "Key",
+    "key_placeholder": "Key (exact match, e.g. ClientID / username / IP)",
+    "count": "Attempts",
+    "banned_at": "Banned at",
+    "banned_until": "Banned until",
+    "remaining": "Remaining",
+    "last_clientid": "Last ClientID",
+    "last_ipaddress": "Last peer address",
+    "unban": "Unban",
+    "unban_confirm": "Lift the ban on {dimension} \"{key}\"?",
+    "unban_fail": "Unban failed: {msg}",
+    "no_results": "No bans in force"
   }
 }

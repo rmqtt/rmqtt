@@ -639,4 +639,102 @@ mod tests {
         println!("2 tree.values_size: {}", tree.values_size());
         println!("2 tree.nodes_size: {}", tree.nodes_size());
     }
+
+    /// The values a filter reaches in the store, sorted, so a case can state the
+    /// match set directly instead of going through `match_one`'s accounting.
+    fn matched_values(tree: &RetainTree<i32>, topic_filter: &str) -> Vec<i32> {
+        let filter = Topic::from_str(topic_filter).unwrap();
+        let mut values: Vec<i32> = tree.matches(&filter).into_iter().map(|(_, v)| v).collect();
+        values.sort_unstable();
+        values
+    }
+
+    /// [MQTT-4.7.2-1]: a stored name that *begins* with `$` is not delivered to a
+    /// filter that begins with a wildcard, while the explicit `$`-prefixed filter
+    /// still gets it. `_matches` scopes that isolation to the first level, and until
+    /// now nothing exercised it.
+    #[test]
+    fn dollar_topic_is_out_of_reach_of_a_root_wildcard() {
+        let mut tree: RetainTree<i32> = RetainTree::default();
+        tree.insert(&Topic::from_str("$SYS").unwrap(), 1);
+        tree.insert(&Topic::from_str("$SYS/a").unwrap(), 2);
+        tree.insert(&Topic::from_str("a/b").unwrap(), 3);
+
+        // `#` reaches the ordinary name and nothing else …
+        assert_eq!(matched_values(&tree, "#"), vec![3]);
+        // … while an explicit `$` level is how a subscriber reaches a system topic,
+        // `#` covering the parent level as it does for any other name.
+        assert_eq!(matched_values(&tree, "$SYS/#"), vec![1, 2]);
+        assert_eq!(matched_values(&tree, "$SYS/a"), vec![2]);
+        assert_eq!(matched_values(&tree, "$SYS"), vec![1]);
+    }
+
+    /// The isolation belongs to the first level only: a `$` level below the root is
+    /// an ordinary level and the wildcards above it reach it (GitHub issue #537).
+    /// The retain tree decides this from the first level alone, exactly as
+    /// `TopicTree` does.
+    #[test]
+    fn dollar_level_below_the_root_is_reachable() {
+        let mut tree: RetainTree<i32> = RetainTree::default();
+        tree.insert(&Topic::from_str("homie/dev/$state").unwrap(), 1);
+
+        assert_eq!(matched_values(&tree, "#"), vec![1]);
+        assert_eq!(matched_values(&tree, "homie/#"), vec![1]);
+        assert_eq!(matched_values(&tree, "homie/dev/+"), vec![1]);
+        assert_eq!(matched_values(&tree, "homie/+/$state"), vec![1]);
+        assert_eq!(matched_values(&tree, "homie/dev/$state"), vec![1]);
+        assert!(matched_values(&tree, "homie/dev/$other").is_empty());
+    }
+
+    /// A first level that is *empty* (a leading `/`) is not a `$` level, so it must
+    /// not be swallowed by the isolation — the `!matches!(k, Level::Blank)` term of
+    /// the guard. The single-level `$` name next to it still is reserved.
+    #[test]
+    fn blank_first_level_is_not_treated_as_dollar() {
+        let mut tree: RetainTree<i32> = RetainTree::default();
+        tree.insert(&Topic::from_str("/a").unwrap(), 1);
+        tree.insert(&Topic::from_str("$a").unwrap(), 2);
+
+        assert_eq!(matched_values(&tree, "#"), vec![1]);
+        assert_eq!(matched_values(&tree, "/+"), vec![1]);
+        assert_eq!(matched_values(&tree, "$a"), vec![2]);
+    }
+
+    /// `+` demands exactly one level, while `#` also answers for its parent level —
+    /// which is how a subscriber to `a/#` still receives a message retained on `a`.
+    #[test]
+    fn plus_needs_one_level_but_hash_covers_the_parent() {
+        let mut tree: RetainTree<i32> = RetainTree::default();
+        tree.insert(&Topic::from_str("a").unwrap(), 1);
+        tree.insert(&Topic::from_str("a/b").unwrap(), 2);
+
+        assert_eq!(matched_values(&tree, "a"), vec![1]);
+        assert_eq!(matched_values(&tree, "a/#"), vec![1, 2]);
+        assert_eq!(matched_values(&tree, "a/+"), vec![2]);
+        assert_eq!(matched_values(&tree, "+"), vec![1]);
+        assert_eq!(matched_values(&tree, "#"), vec![1, 2]);
+    }
+
+    /// The retain tree agrees with `TopicTree` on the same shapes: a `$` inside a
+    /// level is ordinary, a metadata level *below* the root is reached by the
+    /// wildcards above it, and a metadata level at the root is not — not even by a
+    /// `#` that follows the wildcard.
+    #[test]
+    fn dollar_inside_a_level_is_not_isolated() {
+        let mut tree: RetainTree<i32> = RetainTree::default();
+        tree.insert(&Topic::from_str("homie/$dev/$state").unwrap(), 1);
+        tree.insert(&Topic::from_str("homie/dev$/sta$te").unwrap(), 2);
+        tree.insert(&Topic::from_str("$dev/state").unwrap(), 3);
+
+        assert_eq!(matched_values(&tree, "#"), vec![1, 2]);
+        assert_eq!(matched_values(&tree, "homie/#"), vec![1, 2]);
+        assert_eq!(matched_values(&tree, "homie/+/+"), vec![1, 2]);
+        assert_eq!(matched_values(&tree, "homie/$dev/#"), vec![1]);
+
+        // The reserved name is reachable only by naming its first level, and a root
+        // wildcard stays away from it however it continues.
+        assert_eq!(matched_values(&tree, "$dev/#"), vec![3]);
+        assert_eq!(matched_values(&tree, "+/#"), vec![1, 2]);
+        assert!(matched_values(&tree, "+/+").is_empty());
+    }
 }

@@ -44,7 +44,7 @@ pub struct Inner {
 | `--plugins-default-startups` | `plugins_default_startups` | `Option<Vec<String>>` | `None` |
 | `--node-grpc-addrs` | `node_grpc_addrs` | `Option<Vec<NodeAddr>>` | `None` |
 | `--raft-peer-addrs` | `raft_peer_addrs` | `Option<Vec<NodeAddr>>` | `None` |
-| `--raft-leader-id` | `raft_leader_id` | `Option<NodeId>` (u64) | `None` | 指定领导者节点 ID。主要用于单机伪集群开发/测试（0 = 自动选择配置中的第一个节点）。会覆盖插件配置中的 `leader_id` |
+| `--raft-leader-id` | `raft_leader_id` | `Option<NodeId>` (u64) | `None` | 引导提示：指定由哪个节点引导全新 Raft 集群。`0` = 不指定引导节点；并行冷启动请在每个节点固定为同一个、且存在于 `raft_peer_addrs` 中的 ID。会覆盖插件配置中的 `leader_id` |
 
 ### `Task` — 执行器配置
 
@@ -142,11 +142,12 @@ impl Listeners {
 | `key` | `Option<String>` | `None` | TLS 密钥文件路径 |
 | `client_ca_certs` | `Option<String>` | `None` | 客户端 CA 证书文件 |
 | `limit_subscription` | `bool` | `false` | 启用订阅限制 |
-| `delayed_publish` | `bool` | `false` | 启用延迟发布 |
 | `proxy_protocol` | `bool` | `false` | 启用 PROXY protocol |
 | `proxy_protocol_timeout` | `Duration` | `5s` | PROXY 头读取超时 |
 | `cert_cn_as_username` | `bool` | `false` | 使用 TLS CN 作为用户名 |
 | `cert_subject_dn_as_username` | `bool` | `false` | 使用 TLS 主题 DN 作为用户名 |
+| `cert_spiffe_as_username` | `bool` | `false` | 使用 SPIFFE ID（URI SAN）作为用户名；优先于 CN/DN |
+| `cert_spiffe_username_format` | `SpiffeUsernameFormat` | `Uri` | `Uri` / `Path` / `Name` —— SPIFFE ID 映射为用户名的取值方式 |
 | `collect_cert_info` | `bool` | `false` | 收集 TLS 证书信息 |
 | `idle_timeout` | `Duration` | `90s` | QUIC 空闲超时 |
 
@@ -167,9 +168,9 @@ impl Plugins {
 
 | 字段 | 类型 | 默认值 |
 |-------|------|---------|
-| `delayed_publish_max` | `usize` | `100_000` |
-| `delayed_publish_immediate` | `bool` | `true` |
 | `max_sessions` | `isize` | `0`（不限，负数表示禁止新建会话） |
+
+> 延迟发布配置（`delayed_publish_max` / `delayed_publish_immediate`）已迁入 `rmqtt-delayed` 插件配置（`rmqtt-delayed.toml`，键名 `publish_max` / `publish_immediate`）。
 
 ### 配置加载优先级
 

@@ -1,6 +1,6 @@
 /* ============================================================
-   RMQTT Dashboard — ECharts Gauge 仪表盘
-   支持双指针：主指针 (v) + 最大值标记指针 (maxV)
+   RMQTT Dashboard — ECharts gauge
+   Two needles: the main one (v) plus a marker for the maximum (maxV)
    ============================================================ */
 ;(function() {
   'use strict';
@@ -30,7 +30,7 @@
     var t = window.i18n ? window.i18n.$t(this._tk) : this._tk;
     var u = window.i18n ? window.i18n.$t(this._uk) : '';
     maxV = maxV || 0;
-    // 根据两个值中的较大者自动缩放刻度
+    // auto-scale the ticks against the larger of the two values
     var maxForScale = Math.max(v, maxV);
     if (maxForScale > this._max * 0.8) this._max = niceScale(maxForScale);
     var tc = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#e1e8ed';

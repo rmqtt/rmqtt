@@ -54,13 +54,8 @@ plugins.default_startups = [
 ##--------------------------------------------------------------------
 ## MQTT
 ##--------------------------------------------------------------------
-#Delayed message send limit
-mqtt.delayed_publish_max = 100_000
-#Send immediately when limit exceeded, true/false,
-#true -  message will be sent immediately,
-#false - message will be discarded,
-#default: true
-mqtt.delayed_publish_immediate = true
+#Delayed publish settings moved to the rmqtt-delayed plugin config:
+#see rmqtt-delayed.toml (publish_max / publish_immediate).
 
 #Maximum session limit, 0: no limit, default value: 0.
 mqtt.max_sessions = 0

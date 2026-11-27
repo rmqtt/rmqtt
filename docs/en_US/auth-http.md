@@ -4,6 +4,8 @@ English | [简体中文](../zh_CN/auth-http.md)
 
 HTTP authentication uses an external self-built HTTP application authentication data source, and determines the authentication result based on the data returned by the HTTP API, which can implement complex authentication logic.
 
+> **Note — authentication chain and ACL interaction:** This plugin participates in RMQTT's priority-ordered authentication chain and does not change or override ACL behavior. When it cannot make a decision (for example, the auth service returns a non-2xx status such as 404/500), it yields `ignore` and the chain continues with the next plugin. The built-in `rmqtt-acl` plugin is the terminal chain member, and its default final rule `["allow", "all"]` resolves to ALL operations including CONNECT — it explicitly allows connections left as `ignore`, even with `allow_anonymous = false`. If you enable this (or any custom) authentication plugin, configure your ACL rules accordingly: comment out `["allow", "all"]` and enable `["deny", "all"]` in `rmqtt-acl.toml` so only clients explicitly allowed by your authentication can connect (fail-closed). See the `rmqtt-acl` README and [docs/en_US/acl.md](./acl.md) for details.
+
 #### Plugins:
 
 ```bash
@@ -43,7 +45,10 @@ disconnect_if_pub_rejected = true
 ## Default: false
 disconnect_if_expiry = false
 
-##Return 'Deny' if http request error otherwise 'Ignore'
+## Return 'Deny' if the HTTP request itself fails (transport-layer errors:
+## connection refused, timeout, DNS or TLS failure), otherwise 'Ignore'.
+## Non-2xx status responses (404/500/502, ...) are not request errors; they
+## always yield 'Ignore' and the auth chain continues.
 ##
 ## Value: true | false
 ## Default: true
@@ -299,7 +304,9 @@ http_headers.Connection = "keep-alive"
 # If publishing a message is rejected, the connection will be disconnected.
 disconnect_if_pub_rejected = true
 
-# If the HTTP request encounters an error, return "deny"; otherwise, return "ignore".
+# If the HTTP request itself fails (connection refused, timeout, DNS/TLS error),
+# return "deny"; otherwise, return "ignore". Non-2xx status responses
+# (404/500/502, ...) are not request errors; they always yield "ignore".
 deny_if_error = true
 
 ```

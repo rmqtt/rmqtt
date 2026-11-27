@@ -47,9 +47,16 @@ struct Opt {
     workspace: Option<String>,
 
     /// Run only specific test suites (functional_v3, functional_v311, functional_v5,
-    /// functional_v5_cluster, stress, chaos)
+    /// functional_v5_cluster, functional_transport, bridge_egress_mqtt, delayed,
+    /// pulsar, stress, chaos, issue547)
     #[arg(short, long)]
     suites: Vec<String>,
+
+    /// Run only test cases whose name contains this string (repeatable).
+    /// Substring match, so `-t will_` selects every case with `will_` in its
+    /// name; combine with `--suites` to narrow the search to one suite.
+    #[arg(short = 't', long = "test", value_name = "NAME")]
+    tests: Vec<String>,
 
     /// Number of parallel workers
     #[arg(short, long, default_value = "4")]
@@ -85,6 +92,16 @@ struct Opt {
 }
 
 fn main() {
+    // Install the rustls process-level CryptoProvider before any TLS usage
+    // (mirrors rmqtt-bin/src/server.rs). Required because when this binary is
+    // built workspace-wide, cargo feature unification enables BOTH `aws-lc-rs`
+    // and `ring` on rustls (e.g. rmqtt-net pulls `ring` on Windows), so rustls
+    // cannot auto-select a provider and `ClientConfig::builder()` panics at
+    // runtime. The `aws-lc-rs` feature is always enabled in every build mode of
+    // this crate (it comes from its own default features), so referencing
+    // `rustls::crypto::aws_lc_rs` here compiles regardless of build invocation.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     let opt = Opt::parse();
 
     // Initialize logging: console (info+) + trace file (debug+ with packet traces)
@@ -156,10 +173,11 @@ fn main() {
     };
 
     // Build suites, split them by per-test config declarations, then apply
-    // the --suites filter (empty selection keeps everything).
+    // the --suites and --test filters (empty selection keeps everything).
     let suites = build_suites(&opt);
     let suites = split_suites_by_config(suites, &default_config);
     let suites = filter_suites(suites, &opt.suites);
+    let suites = filter_tests(suites, &opt.tests);
 
     // Run tests (synchronous - each test creates its own runtime internally)
     let mut scheduler = TestScheduler::new();
@@ -218,12 +236,28 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
         suites.push(build_functional_v5_suite());
     }
 
-    // functional_v5_cluster requires a manually started two-node cluster
-    // (see rmqtt-test/configs/pubrel-collision-cluster/). It is only run when
+    // functional_v5_cluster owns its two-node cluster: the case spawns the
+    // nodes from rmqtt-test/configs/pubrel-collision-cluster/ (reusing any it
+    // finds already listening) and kills its own on exit. It is only run when
     // explicitly requested — never as part of the default full run, so it
     // cannot break the single-node suites.
     if should_run("functional_v5_cluster", opt) {
         suites.push(build_functional_v5_cluster_suite());
+    }
+
+    // G27 TLS/WebSocket transport suite (self-managed broker; standalone).
+    if should_run("functional_transport", opt) {
+        suites.push(build_transport_suite());
+    }
+
+    // Delayed publish plugin suite (`$delayed/<interval>/<topic>`). Every
+    // harness-broker test declares a broker_config, so this suite splits
+    // into `delayed@delayed`, `delayed@delayed-max1`,
+    // `delayed@delayed-max1-drop` and `delayed@delayed-flush` sub-suites
+    // (plus the plain `delayed` cluster test that spawns its own nodes);
+    // the `delayed` selector matches all of them.
+    if should_run("delayed", opt) {
+        suites.push(build_delayed_suite());
     }
 
     if should_run("stress", opt) {
@@ -234,21 +268,69 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
         suites.push(build_chaos_suite(opt.chaos_iterations));
     }
 
+    // Pulsar bridge suite: egress/ingress data paths verified against an
+    // EXTERNAL Apache Pulsar service (`pulsar://127.0.0.1:6650`), which is why
+    // it is never part of the default full run and must be requested with
+    // `--suites pulsar`.
+    if should_run("pulsar", opt) {
+        suites.push(build_pulsar_suite());
+    }
+
+    // MQTT bridge suite (issue #451): the egress/ingress MQTT plugins are
+    // exercised against a *mock* peer broker that runs inside the test process.
+    // It owns a fixture config pinned to MQTT 1915 / gRPC 5395, so it binds
+    // ports of its own and is kept out of the default full run — request it
+    // with `--suites bridge_egress_mqtt`.
+    if should_run("bridge_egress_mqtt", opt) {
+        suites.push(build_bridge_egress_mqtt_suite());
+    }
+
+    // Bridge configuration rejection (issue #540): every case starts its OWN
+    // `rmqttd` with a generated configuration, because "the broker must refuse
+    // to serve with this config" is not a verdict the harness's managed broker
+    // can express. It owns ports of its own (MQTT 1925-1934 / gRPC 5405-5414 /
+    // HTTP 6085-6094 + 2925 for an MQTT 3.1.1 mock) and is therefore never part
+    // of the default full run — request it with `--suites bridge_config_reject`.
+    if should_run("bridge_config_reject", opt) {
+        suites.push(build_bridge_config_reject_suite());
+    }
+
+    // Circuit-breaker window cost (issue #547). These cases need neither a
+    // broker nor a port: they drive the production Tower layer in-process and
+    // time it, so they are kept out of the default full run — a timing case
+    // must not share the machine with the functional suites' workers. Request
+    // it with `--suites issue547` and, ideally, `--no-broker --workers 1`.
+    if should_run("issue547", opt) {
+        suites.push(build_issue547_suite());
+    }
+
     suites
 }
 
 /// Decide whether the (original, pre-split) suite `name` is selected.
 ///
 /// - Empty `--suites` = default full run, which excludes the two-node
-///   `functional_v5_cluster` suite.
+///   `functional_v5_cluster` suite (it manages its own nodes and needs
+///   `--no-broker`), the `pulsar` suite (external Pulsar service), the
+///   standalone `bridge_egress_mqtt` / `bridge_config_reject` suites (they bind
+///   their own MQTT/gRPC ports, run mock peers in-process, and spawn their own
+///   brokers) and `issue547` (in-process timing measurements, which must not
+///   share the machine with the functional suites' workers).
 /// - Otherwise a suite is selected when a selector equals its name, is a
 ///   prefix (`functional_v5` also selects `functional_v5@retain-disabled`),
 ///   or is a sub-suite name of it (`functional_v5@retain-disabled` also
 ///   selects `functional_v5`).
 fn should_run(name: &str, opt: &Opt) -> bool {
     if opt.suites.is_empty() {
-        // Default full run excludes the manually-started cluster suite.
-        return name != "functional_v5_cluster";
+        // Default full run excludes the self-managed cluster suite (it needs
+        // --no-broker, which the default run does not pass), the pulsar
+        // bridge suite (external Pulsar service required) and the MQTT bridge
+        // suite (its own port block + in-process mock peers).
+        return name != "functional_v5_cluster"
+            && name != "pulsar"
+            && name != "bridge_egress_mqtt"
+            && name != "bridge_config_reject"
+            && name != "issue547";
     }
     opt.suites
         .iter()
@@ -269,6 +351,32 @@ fn filter_suites(suites: Vec<TestSuite>, selected: &[String]) -> Vec<TestSuite> 
     suites
         .into_iter()
         .filter(|s| selected.iter().any(|sel| s.name == *sel || s.name.starts_with(&format!("{}@", sel))))
+        .collect()
+}
+
+/// Filter the (split) suites down to the test cases selected on the command
+/// line by `-t/--test`.
+///
+/// Applied after `split_suites_by_config`, so the surviving cases keep their
+/// declared broker config and the scheduler still only switches configs at
+/// suite boundaries. A case is kept when its name contains any selector
+/// (substring match, not glob); suites left without any matching case are
+/// dropped entirely, so `-t <name>` runs exactly the requested cases and
+/// nothing else — no broker restart for a suite that lost all its cases.
+fn filter_tests(suites: Vec<TestSuite>, selected: &[String]) -> Vec<TestSuite> {
+    if selected.is_empty() {
+        return suites;
+    }
+    suites
+        .into_iter()
+        .filter_map(|mut suite| {
+            suite.tests.retain(|t| selected.iter().any(|sel| t.name().contains(sel.as_str())));
+            if suite.tests.is_empty() {
+                None
+            } else {
+                Some(suite)
+            }
+        })
         .collect()
 }
 
@@ -357,18 +465,30 @@ fn build_functional_v3_suite() -> TestSuite {
     suite.add(ProtocolErrorV3PublishPacketIdZeroTest);
     suite.add(ProtocolErrorV3BadRemainingLengthTest);
     suite.add(ProtocolErrorV3EmptyTopicFilterTest);
+    // Empty topic filters (2026-08-23): SUBSCRIBE/UNSUBSCRIBE with an
+    // empty-string filter or (UNSUBSCRIBE) zero filters must close the
+    // connection (MQTT-3.8.3-1 / MQTT-3.10.3-1 / MQTT-4.7.3-1)
+    suite.add(ProtocolErrorV3SubscribeEmptyFilterTest);
+    suite.add(ProtocolErrorV3UnsubscribeEmptyTest);
+    suite.add(ProtocolErrorV3UnsubscribeEmptyFilterTest);
+    // PUBLISH with empty Topic Name must close the connection (MQTT-4.7.3-1)
+    suite.add(ProtocolErrorV3PublishEmptyTopicTest);
     suite.add(ProtocolErrorV3ReservedPacketTypeTest);
     suite.add(ProtocolErrorV3SubscribeQos0FixedHeaderTest);
     suite
 }
 
 fn build_functional_v311_suite() -> TestSuite {
+    use tests::functional::auth_http_acl_fallthrough_v311::*;
     use tests::functional::auth_v311::*;
     use tests::functional::boundary::*;
+    use tests::functional::connack_return_codes_v311::*;
     use tests::functional::connect_v311::*;
     use tests::functional::dollar_topics::*;
     use tests::functional::empty_clientid_cleansession0_v311::*;
+    use tests::functional::flapping_v311::*;
     use tests::functional::keepalive::*;
+    use tests::functional::kick_takeover_race::*;
     use tests::functional::last_will::*;
     use tests::functional::multi_topic::*;
     use tests::functional::protocol_error::*;
@@ -378,8 +498,21 @@ fn build_functional_v311_suite() -> TestSuite {
     use tests::functional::retain_v311::*;
     use tests::functional::session_v311::*;
     use tests::functional::shared_subscription::*;
+    use tests::functional::webhook_connack_refused_v311::*;
     use tests::functional::wildcard::*;
     use tests::functional::wildcard_reject::*;
+    use tests::functional::will_acl_v311::*;
+    // Plugin-feature coverage (batch A/B): each module owns a self-contained
+    // fixture under `configs/plugin-*` and declares it through
+    // `TestCase::broker_config()` / `broker_addr()`, so the scheduler switches
+    // the broker at the sub-suite boundary.
+    use tests::functional::auto_subscription::*;
+    use tests::functional::bridge_origin::*;
+    use tests::functional::p2p_messaging::*;
+    use tests::functional::queue_limits::*;
+    use tests::functional::shared_strategies::*;
+    use tests::functional::sys_topic::*;
+    use tests::functional::topic_rewrite::*;
 
     let mut suite = TestSuite::new("functional_v311");
     suite.add(ConnectV311Test);
@@ -396,6 +529,9 @@ fn build_functional_v311_suite() -> TestSuite {
     suite.add(LastWillV311Test);
     suite.add(LastWillV311CleanTest);
     suite.add(LastWillUncleanTest);
+    // Will Message must pass the publish ACL (runs on the will-acl fixture)
+    suite.add(WillAclAllowedTopicPublishedV311Test);
+    suite.add(WillAclDeniedTopicDroppedV311Test);
     // KeepAlive / PING
     suite.add(KeepAliveV311Test);
     suite.add(KeepAliveTimeoutTest);
@@ -424,11 +560,12 @@ fn build_functional_v311_suite() -> TestSuite {
     suite.add(PublishWildcardRejectTest);
     // Dollar topics ($SYS)
     suite.add(DollarTopicsTest);
+    // Non-leading `$` levels (GitHub issue #537)
+    suite.add(DollarTopicsNonLeadingV311Test);
     // QoS 2 duplicate detection
     suite.add(Qos2DuplicateDetectionTest);
     // Protocol error edge cases
     suite.add(InvalidProtocolVersionTest);
-    suite.add(EmptyTopicFilterTest);
     // QoS 2 exactly-once conformance (GitHub issue #456, MQTT 3.1.1)
     suite.add(Qos2ReplayedPublishDedupV311Test);
     suite.add(Qos2PubrelResendOnResumeV311Test);
@@ -466,6 +603,428 @@ fn build_functional_v311_suite() -> TestSuite {
     suite.add(WildcardV311CaseSensitiveTest);
     suite.add(WildcardV311LeadingSlashTest);
     suite.add(WildcardV311HashNotLastTest);
+    // --- P0 conformance gap fill (designs/mqtt-311-standalone-test-gap-analysis.md) ---
+    // G1 invalid UTF-8 in CONNECT fields
+    suite.add(ConnectV311InvalidUtf8ClientIdTest);
+    suite.add(ConnectV311InvalidUtf8WillTopicTest);
+    suite.add(ConnectV311InvalidUtf8UsernameTest);
+    // G1 invalid UTF-8 topic in PUBLISH
+    suite.add(ProtocolErrorV311InvalidUtf8TopicTest);
+    // G2 remaining-length var-int boundaries
+    suite.add(RemainingLengthMaxV311Test);
+    suite.add(RemainingLengthTransitionV311Test);
+    // G3/G4/G5 CONNECT flag consistency
+    suite.add(ConnectV311WillFlagZeroButQosSetTest);
+    suite.add(ConnectV311WillQos3Test);
+    suite.add(ConnectV311UsernameFlagMismatchTest);
+    suite.add(ConnectV311PasswordFlagMismatchTest);
+    // G6 QoS negotiation / downgrade
+    suite.add(QosDowngradeV311Test);
+    // G7 PUBREL/PUBREC/PUBCOMP fixed-header flags
+    suite.add(ProtocolErrorV311PubrelWrongFlagsTest);
+    suite.add(ProtocolErrorV311PubrecPubcompWrongFlagsTest);
+    // G8 QoS 0 PUBLISH must not carry a packet id (payload integrity)
+    suite.add(ProtocolErrorV311Qos0PublishWithPacketIdTest);
+    // G9 SUBSCRIBE/UNSUBSCRIBE packet id 0
+    suite.add(ProtocolErrorV311SubscribePacketIdZeroTest);
+    suite.add(ProtocolErrorV311UnsubscribePacketIdZeroTest);
+    // G10 QoS 1 redelivery on session resume
+    suite.add(Qos1PublishResendOnResumeV311Test);
+    // --- P1 conformance gap fill ---
+    // G11 truncated packet / declared-length mismatch
+    suite.add(ProtocolErrorV311TruncatedPacketTest);
+    suite.add(ProtocolErrorV311DeclaredLengthMismatchTest);
+    // G12 reserved packet type 0x0F
+    suite.add(ProtocolErrorV311PacketType15Test);
+    // G13 CONNACK return codes (split into @auth-denied / @auth-jwt-denied
+    // sub-suites by broker_config())
+    suite.add(ConnackReturnCodesAuthHttpV311Test);
+    suite.add(ConnackNotAuthorizedV311Test);
+    // Issue #501: the fate of connections a custom auth plugin leaves as
+    // 'ignore' (non-2xx auth response) is decided by the rmqtt-acl FINAL
+    // rule — self-managed brokers on 1896 (allow-all → CONNACK 0x00
+    // fail-open reproduction) / 1900 (deny-all → CONNACK 0x05 fail-closed).
+    suite.add(AuthHttpIgnoreAllowAllAclV311Test);
+    suite.add(AuthHttpIgnoreDenyAllAclV311Test);
+    // Handshake REFUSAL must reach the client_connack hook: the self-managed
+    // broker on 1901 starts only rmqtt-web-hook (anonymous access disabled,
+    // rmqtt-acl off), gets an anonymous CONNECT refused with 0x05 and must
+    // POST the client_connack event carrying that reason to an in-test mock
+    // receiver — see tests/functional/webhook_connack_refused_v311.rs.
+    suite.add(WebhookConnackRefusedV311Test);
+    // Connection flapping gate (rmqtt-flapping): the attempt that reaches
+    // max_count is refused with CONNACK 0x05, the ban is announced on $SYS
+    // and lapses by itself. The fixture (configs/flapping/) allows anonymous
+    // access, so the gate is the only possible source of a refusal — see
+    // tests/functional/flapping_v311.rs.
+    suite.add(FlappingBanV311Test);
+    // G14 concurrent session takeover
+    suite.add(SessionV311TakeoverTest);
+    // A takeover racing the outgoing session's own teardown must not be
+    // refused with 0x03 ServerUnavailable: the `kick` ack is diagnostic only,
+    // and the session being replaced is already gone. See
+    // tests/functional/kick_takeover_race.rs.
+    suite.add(KickRaceSessionTakeoverV311Test);
+    // G15 empty topic levels
+    suite.add(WildcardEmptyLevelsV311Test);
+    // G16 overlapping wildcard subscriptions
+    suite.add(WildcardV311OverlapTest);
+    // G17 empty topic name in PUBLISH
+    suite.add(ProtocolErrorV311PublishEmptyTopicTest);
+    // G18 UNSUBSCRIBE with no topic filters
+    suite.add(ProtocolErrorV311UnsubscribeEmptyTest);
+    // Empty topic filters (2026-08-23): SUBSCRIBE/UNSUBSCRIBE with zero
+    // filters or an empty-string filter must close the connection
+    // (MQTT-3.8.3-1 / MQTT-3.10.3-1 / MQTT-4.7.3-1)
+    suite.add(ProtocolErrorV311SubscribeEmptyTest);
+    suite.add(ProtocolErrorV311SubscribeEmptyFilterTest);
+    suite.add(ProtocolErrorV311UnsubscribeEmptyFilterTest);
+    // G19 live publish keeps the retained message
+    suite.add(RetainV311LivePublishKeepsRetainedTest);
+    // G20 Will QoS 0/1 + no-fire on rejected connect
+    suite.add(LastWillV311Qos0Test);
+    suite.add(LastWillV311Qos1Test);
+    suite.add(WillNotFireOnRejectedConnectTest);
+    // G21 unsolicited PUBREL (must not crash)
+    suite.add(ProtocolErrorV311UnsolicitedPubrelTest);
+    // --- P2 boundary / combination / transport gap fill (G22-G26, G28) ---
+    // G22 empty ClientId + Clean Session 1: assigned ids must be unique
+    suite.add(ConnectV311AssignedClientIdTest);
+    // G23 keep-alive 1.5x window boundary / G24 explicit PINGRESP
+    suite.add(KeepAliveV311WindowBoundaryTest);
+    suite.add(KeepAliveV311PingRespExplicitTest);
+    // G25 QoS 2 message ordering
+    suite.add(OrderingQos2V311Test);
+    // G26 retained message survives a broker restart (sled persistence)
+    suite.add(RetainV311RestartRecoveryTest);
+    // G28 broker->client QoS 2 break point: no PUBREC -> DUP=1 retransmit
+    suite.add(Qos2BrokerToClientNoPubrecV311Test);
+    // --- P3 optional / low risk (G29-G32) ---
+    // G29 65535-byte client id boundary
+    suite.add(ConnectV311ClientId65535Test);
+    // G30 CONNECT payload field order violation
+    suite.add(ConnectV311PayloadOrderErrorTest);
+    // G31 binary (non-UTF-8) will payload is accepted and delivered verbatim
+    suite.add(LastWillV311InvalidUtf8PayloadTest);
+    // G32 persistent session survives TCP FIN / RST disconnects
+    suite.add(SessionV311TcpFinRstTest);
+    // --- Plugin features that had no coverage at all (batch A/B) ---
+    // $SYS system topics (rmqtt-sys-topic): periodic stats/metrics plus the
+    // per-session / per-client event topics. Fixture: configs/plugin-sys-topic/.
+    suite.add(PluginSysTopicStatsMetricsTest);
+    suite.add(PluginSysTopicClientEventsTest);
+    // Offline queue cap (max_mqueue_len) and its per-QoS overflow policy:
+    // QoS 1 drops the oldest queued message, QoS 0 drops the incoming one.
+    // Fixture: configs/plugin-queue-limits/.
+    suite.add(PluginQueueQos1OverflowDropsOldestTest);
+    suite.add(PluginQueueQos0OverflowDropsNewestTest);
+    // Shared-subscription strategies: round_robin exactly-once on the default
+    // config plus sticky / hash_clientid / hash_topic on their own fixtures.
+    suite.add(PluginSharedRoundRobinExactlyOnceTest);
+    suite.add(PluginSharedStickyAffinityTest);
+    suite.add(PluginSharedHashClientIdTest);
+    suite.add(PluginSharedHashTopicTest);
+    // Auto subscription (${clientid} / ${username}). Fixture:
+    // configs/plugin-auto-sub/.
+    suite.add(PluginAutoSubscriptionClientIdTest);
+    suite.add(PluginAutoSubscriptionUsernameTest);
+    // Topic rewriting (publish / subscribe actions, $share prefix rule).
+    // Fixture: configs/plugin-topic-rewrite/.
+    suite.add(PluginTopicRewritePublishTest);
+    suite.add(PluginTopicRewriteSubscribeTest);
+    // Point-to-point messaging (prefix / suffix forms). Fixture:
+    // configs/plugin-p2p/.
+    suite.add(PluginP2pPrefixTest);
+    suite.add(PluginP2pSuffixTest);
+    // Bridge-origin marker detection (log-based: extra_attrs is not exposed).
+    // Fixture: configs/plugin-bridge-origin/.
+    suite.add(PluginBridgeOriginDetectsMarkersTest);
+    suite.add(PluginBridgeOriginIgnoresPlainClientIdTest);
+    suite
+}
+
+/// Pulsar bridge suite — run in isolation with `--suites pulsar`.
+///
+/// Verifies the two Pulsar bridge plugins end to end against an **external**
+/// Apache Pulsar service at `pulsar://127.0.0.1:6650`:
+///
+/// - egress  (`rmqtt-bridge-egress-pulsar`):  MQTT publish   -> Pulsar topic
+/// - ingress (`rmqtt-bridge-ingress-pulsar`): Pulsar message -> MQTT publish
+///
+/// The tests embed their own Pulsar producer/consumer as independent
+/// observers. The whole suite is pinned to
+/// `rmqtt-test/configs/pulsar/rmqtt.toml` (bridge plugins + `rmqtt-retainer`),
+/// so the scheduler switches the broker config once at the suite boundary.
+/// When the Pulsar service is unreachable every test reports `Skipped`.
+///
+///     ./target/debug/mqtt_harness --workspace . --suites pulsar --workers 1
+fn build_pulsar_suite() -> TestSuite {
+    use tests::functional::pulsar::egress::*;
+    use tests::functional::pulsar::ingress::*;
+
+    let mut suite = TestSuite::with_config("pulsar", tests::config_path("pulsar"));
+
+    // Egress: MQTT publish -> Pulsar topic, observed by a test consumer.
+    suite.add(PulsarEgressSmokeTest);
+    suite.add(PulsarEgressBasicQos0Test);
+    suite.add(PulsarEgressQos1Test);
+    suite.add(PulsarEgressBinaryPayloadTest);
+    suite.add(PulsarEgressLargePayloadTest);
+    suite.add(PulsarEgressTopicFilterScopeTest);
+    suite.add(PulsarEgressForwardAllPublishTest);
+    suite.add(PulsarEgressForwardAllFromTest);
+    suite.add(PulsarEgressSkipLevelsTest);
+
+    // Environment / service readiness.
+    suite.add(PulsarServiceProbeTest);
+
+    // Ingress: Pulsar message -> MQTT publish, injected by a test producer.
+    suite.add(PulsarIngressBasicTest);
+    suite.add(PulsarIngressUserPropertiesTest);
+    suite.add(PulsarIngressQosPropertyTest);
+    suite.add(PulsarIngressOrderingTest);
+    suite.add(PulsarIngressBinaryPayloadTest);
+    suite.add(PulsarIngressEmptyPayloadTest);
+    suite.add(PulsarIngressRemoteTopicPlaceholderTest);
+    // Retained delivery is checked last: it writes retained state on the local
+    // topic and cleans it up at the end of the case.
+    suite.add(PulsarIngressRetainPropertyTest);
+
+    suite
+}
+
+/// Standalone MQTT-bridge suite (issue #451) — run with
+/// `--suites bridge_egress_mqtt`.
+///
+/// The `rmqtt-bridge-egress-mqtt` / `rmqtt-bridge-ingress-mqtt` plugins are
+/// exercised against a **mock peer broker that lives inside the test process**
+/// (no docker, no mosquitto): the case receives the bridge's CONNECT, answers
+/// CONNACK/SUBACK/PINGRESP and records every PUBLISH the bridge emits, so the
+/// exact bytes the bridge puts on the wire can be asserted — in particular
+/// whether the topic name it forwards is legal.
+///
+/// Every case is pinned to `rmqtt-test/configs/bridge-egress-mqtt/rmqtt.toml`
+/// (MQTT 1915 / gRPC 5395, both bridge plugins, `log.to = "file"`) through
+/// [`TestCase::broker_config`], plus `broker_addr() = 127.0.0.1:1915` so the
+/// harness health-probes the fixture's own listener instead of the default
+/// 1883. The suite is opt-in: it binds its own port block and runs mock peers
+/// on 2915 (egress target) / 3915 (ingress source).
+///
+///     ./target/debug/mqtt_harness --binary target/debug/rmqttd --workspace . \
+///         --suites bridge_egress_mqtt --workers 1
+fn build_bridge_egress_mqtt_suite() -> TestSuite {
+    use tests::functional::bridge_egress_mqtt::*;
+
+    let mut suite = TestSuite::new("bridge_egress_mqtt");
+
+    // Egress side, happy path: a legal mapping must forward the local publish to
+    // the peer verbatim. Asserted on its own so that a successful forward is not
+    // covered only by the control arm inside the skip_levels case.
+    suite.add(Issue451EgressForwardLocalPublishTest);
+    // Egress side: a mapping that is only illegal at RUNTIME — `${local.topic}`
+    // truncated by an out-of-range `skip_levels` — must not reach the peer, and
+    // its drop must be attributable from the broker log (needs
+    // `log.to = "file"`). A mapping that is illegal as a literal is rejected
+    // when the config is loaded, so it cannot even start a broker and is
+    // covered by the plugins' unit tests instead.
+    suite.add(Issue451EgressEmptyTopicAfterSkipLevelsTest);
+    // Egress side: v5 properties are per-connection / direction-specific and
+    // must not be replayed onto another connection.
+    suite.add(Issue451EgressV5CrossConnectionPropertiesTest);
+
+    // Ingress side: the shape of `local.topic` decides the local topic the
+    // ingress bridge publishes to. One case per legal shape (the illegal
+    // literal shape is rejected at config load).
+    suite.add(Issue451IngressLocalTopicPlaceholderTransparentTest);
+    suite.add(Issue451IngressLocalTopicLiteralPlainTest);
+    suite.add(Issue451IngressLocalTopicWithSuffixTest);
+    // Ingress side, happy path: the I1 mapping must reach a plain LOCAL
+    // subscriber of the broker — observed without routing the assertion through
+    // the egress bridge, which is the whole point of an ingress bridge.
+    suite.add(Issue451IngressDeliversToLocalSubscriberTest);
+
+    // The topic FILTER field of an entry (issue #540). The `$share/...` case is
+    // the guard against over-rejection — that form is what the PEER needs — and
+    // the refused-subscription case is the runtime half: a peer is entitled to
+    // refuse, and the entry must not be retried for the lifetime of the process
+    // as if the failure were transient.
+    suite.add(Issue540IngressShareFilterSubscribedVerbatimTest);
+    suite.add(Issue540IngressRefusedSubscriptionIsBoundedTest);
+
+    suite
+}
+
+/// Standalone bridge-configuration suite (issue #540) — run with
+/// `--suites bridge_config_reject`.
+///
+/// The sibling `bridge_egress_mqtt` suite asserts what the bridges put on the
+/// wire; this one asserts what the broker does with a configuration the bridges
+/// cannot honour. Every case owns its own `rmqttd` process (the harness's
+/// managed broker treats "did not become healthy" as a harness error, not as a
+/// verdict), and generates its configuration by copying
+/// `configs/bridge-egress-mqtt/` and injecting exactly ONE field — the topic
+/// FILTER of the bridge entry under test.
+///
+///     ./target/debug/mqtt_harness --binary target/debug/rmqttd --workspace . \
+///         --suites bridge_config_reject --workers 1
+fn build_bridge_config_reject_suite() -> TestSuite {
+    use tests::functional::bridge_config_reject::*;
+
+    let mut suite = TestSuite::new("bridge_config_reject");
+
+    // Ingress `remote.topic` — the filter the bridge SUBSCRIBEs with on the
+    // peer. Never validated today, so an entry can be born dead.
+    suite.add(Issue540IngressRemoteTopicFilterInvalidTest);
+    suite.add(Issue540IngressRemoteTopicEmptyTest);
+    // The 65535-byte cap applies to the WHOLE filter string (§1.5.4), not just
+    // to the filter behind the ShareName.
+    suite.add(Issue540IngressRemoteTopicFilterOverlongTest);
+
+    // Egress `local.topic_filter` — the filter the bridge matches local
+    // publishes against. Checked only when the bridge starts, where a failure
+    // restarts the whole bridge every 3 s instead of naming the entry.
+    suite.add(Issue540EgressTopicFilterInvalidTest);
+    suite.add(Issue540EgressTopicFilterEmptyTest);
+    suite.add(Issue540EgressTopicFilterSharePrefixTest);
+    // The other two peer-facing forms: same load-time verdict, different prefix.
+    suite.add(Issue540EgressTopicFilterLimitPrefixTest);
+    suite.add(Issue540EgressTopicFilterExclusivePrefixTest);
+
+    // Positive control: legal filters (including an ingress `$share/...`, which
+    // is exactly what the peer expects, and an egress `$SYS/#`, which is
+    // `$`-prefixed but local) must still start.
+    suite.add(Issue540ValidFiltersStartTest);
+
+    // Runtime half on the MQTT 3.1.1 path: a subscription the peer refuses must
+    // be attributable and must not be retried forever.
+    suite.add(Issue540IngressV311SubscribeRefusedTest);
+
+    suite
+}
+
+/// Circuit-breaker window-cost suite (issue #547) — run in isolation with
+/// `--suites issue547`.
+///
+/// The cases build the same Tower layer `GrpcClient::new` builds (see
+/// `build_circuit_breaker_layer`, rmqtt/src/grpc.rs) around a service with the
+/// same shape as `GrpcNotifyService`, and time it. They need **no broker and no
+/// port**, so the fast path is
+///
+///     ./target/debug/mqtt_harness --workspace . --no-broker --suites issue547 --workers 1
+///
+/// Four cases, one arm each, so the report reads as an A/B: both window types
+/// get the SAME load shape, and only the window type differs —
+///
+/// * `TimeBased` (the shipped default) reproduces the defect; declared
+///   `Normal`, so it FAILS today — that is the reporter's 12 500 msg/s cluster
+///   backlog and OOM — and turns green once the breaker stops rescanning its
+///   window on every call.
+/// * `CountBased` is the positive control (`-t issue547_countbased`) and must
+///   stay green; a red control means the harness, the dependency or the machine
+///   changed, which is itself the signal.
+///
+/// The suite is excluded from the default full run on purpose: these are
+/// *ratios measured inside one run*, and a machine also running the functional
+/// suites' parallel workers would blur them.
+fn build_issue547_suite() -> TestSuite {
+    use tests::functional::issue547_circuit_breaker_window::*;
+
+    let mut suite = TestSuite::new("issue547");
+
+    // Sequential: per-call cost must not grow with the records in the window.
+    suite.add(Issue547TimeBasedWindowScanCostTest);
+    // ...and the control that proves the growth belongs to the window type.
+    suite.add(Issue547CountBasedWindowScanCostTest);
+    // Concurrent: throughput must not decay as the window fills (the incident's
+    // signature — the scheme caps itself at ~1/sqrt(a * window)).
+    suite.add(Issue547TimeBasedConcurrentCeilingTest);
+    // ...and the control that proves the load generator can sustain the rate.
+    suite.add(Issue547CountBasedConcurrentCeilingTest);
+
+    suite
+}
+
+/// Standalone transport suite: the G27 TLS / WebSocket cases live here (not
+/// in functional_v311) so they can be run alone without the ~100 other v311
+/// cases, the SPIFFE-username mTLS cases join them (issue #535), the
+/// client-certificate-over-QUIC case joins them (PR #555), and the
+/// WebSocket frame-boundary cases (issue #551) share the same self-managed
+/// `configs/transport-tls` broker:
+///
+///     ./target/release/mqtt_harness --workspace . --suites functional_transport
+///
+/// The #551 cases write raw WebSocket frames — an empty Binary, an empty Ping,
+/// a Ping whose payload is a `C0 00` PINGREQ, and a CONNECT split over two
+/// frames with an empty frame in between — which is why they talk to the broker
+/// through a raw `WebSocketStream` instead of the `WsStream` byte adapter:
+/// before the fix each of them ended the session (or spliced a control-frame
+/// payload into the MQTT stream), so they are now the guard for that read loop.
+fn build_transport_suite() -> TestSuite {
+    use tests::functional::issue551_ws_frames::*;
+    use tests::functional::transport_quic_cert::*;
+    use tests::functional::transport_tls::*;
+    use tests::functional::transport_tls_spiffe::*;
+
+    let mut suite = TestSuite::new("functional_transport");
+    suite.add(TransportTlsV311Test);
+    suite.add(TransportWssV311Test);
+    suite.add(TransportWsV311Test);
+    suite.add(TransportTlsMtlsV311Test);
+    suite.add(TransportTlsSpiffeV311Test);
+    suite.add(TransportTlsSpiffeV5Test);
+    suite.add(TransportTlsSpiffeFallbackV311Test);
+    // QUIC client-certificate binding (PR #555): the certificate must override
+    // the username the CONNECT claims, exactly as on TLS. Red on a broker whose
+    // QUIC dispatcher is built without the certificate, green after the fix.
+    suite.add(TransportQuicCertSpiffeV311Test);
+    // Frame boundaries (issue #551): the reported reproduction (paho.golang),
+    // the same path via an empty WS keepalive Ping, a control frame whose
+    // payload must not reach the decoder, and an empty frame between the
+    // fragments of one packet.
+    suite.add(Issue551WsEmptyFrameTest);
+    suite.add(Issue551WsEmptyPingTest);
+    suite.add(Issue551WsPingPayloadTest);
+    suite.add(Issue551WsSplitWithEmptyFrameTest);
+    suite
+}
+
+/// Delayed publish plugin suite (`rmqtt-delayed`, `$delayed/<interval>/<topic>`).
+///
+/// Grouped in a standalone suite so the plugin can be tested in isolation
+/// with `--suites delayed`. The tests are grouped by the broker config they
+/// declare (see `split_suites_by_config`):
+///
+/// - `delayed@delayed`: plugin defaults (basic/routing/QoS/ordering/timing/properties/error-path/retain tests).
+/// - `delayed@delayed-max1`: publish_max=1, overflow forwarded immediately.
+/// - `delayed@delayed-max1-drop`: publish_max=1, overflow dropped.
+/// - `delayed@delayed-flush`: dedicated broker for the plugin-unload flush test.
+/// - `delayed` (plain): the self-managed 2-node cluster test.
+fn build_delayed_suite() -> TestSuite {
+    use tests::functional::delayed::*;
+
+    let mut suite = TestSuite::new("delayed");
+    // P1 — basic delivery, routing, QoS, ordering
+    suite.add(DelayedBasicDeliveryV5Test);
+    suite.add(DelayedBasicDeliveryV311Test);
+    suite.add(DelayedRoutingNoDollarLeakTest);
+    suite.add(DelayedQosPreserveTest);
+    suite.add(DelayedOrderingByExpiryTest);
+    // P2 — subscription timing, properties, error paths, semantics pinning
+    suite.add(DelayedUnsubscribeBeforeExpiryTest);
+    suite.add(DelayedSubscribeAfterPublishTest);
+    suite.add(DelayedExpiryIntervalPassthroughV5Test);
+    suite.add(DelayedPropertiesPassthroughV5Test);
+    suite.add(DelayedInvalidIntervalTest);
+    suite.add(DelayedMalformedTopicShapesTest);
+    suite.add(DelayedNestedDollarPrefixTest);
+    suite.add(DelayedRetainSemanticsTest);
+    suite.add(DelayedIntervalZeroTest);
+    // P2 — publish_max overflow (dedicated broker configs)
+    suite.add(DelayedMaxOverflowImmediateTest);
+    suite.add(DelayedMaxOverflowDropTest);
+    // P3 — plugin lifecycle and cluster
+    suite.add(DelayedPluginUnloadFlushTest);
+    suite.add(DelayedClusterCrossNodeTest);
     suite
 }
 
@@ -476,30 +1035,49 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::disconnect_reason_v5::*;
     use tests::functional::dollar_topics::*;
     use tests::functional::empty_clientid_cleanstart0_v5::*;
+    use tests::functional::flapping_order_v5::*;
+    use tests::functional::flapping_v5::*;
     use tests::functional::flow_control_v5::*;
+    use tests::functional::issue513_message_lifecycle::*;
+    use tests::functional::issue532_connect_ramp_stall::*;
+    use tests::functional::issue532_tls_connect_ramp_stall::*;
     use tests::functional::keepalive::*;
+    use tests::functional::kick_takeover_race::*;
     use tests::functional::last_will::*;
     use tests::functional::max_packet_size_v5::*;
     use tests::functional::no_local_v5::*;
     use tests::functional::payload_format_v5::*;
     use tests::functional::protocol_error_v5::*;
     use tests::functional::publication_expiry_v5::*;
+    use tests::functional::publish_properties_passthrough_v5::*;
     use tests::functional::pubsub_v5::*;
     use tests::functional::qos2_conformance::*;
     use tests::functional::qos2_pubrel_resume_collision::*;
+    use tests::functional::qos_downgrade_v5::*;
+    use tests::functional::reason_code_v5::*;
+    use tests::functional::request_problem_info_v5::*;
     use tests::functional::request_response_v5::*;
     use tests::functional::retain_handling_v5::*;
     use tests::functional::retain_unavailable_v5::*;
     use tests::functional::retain_v5::*;
+    use tests::functional::server_disconnect_v5::*;
     use tests::functional::server_keepalive_v5::*;
     use tests::functional::session_v5::*;
     use tests::functional::shared_subscription::*;
     use tests::functional::subscribe_identifiers_v5::*;
+    use tests::functional::subscribe_multi_filter_v5::*;
     use tests::functional::tcp_keepalive::*;
     use tests::functional::topic_alias_v5::*;
     use tests::functional::user_properties_v5::*;
     use tests::functional::wildcard::*;
     use tests::functional::will_delay_v5::*;
+    use tests::functional::will_disconnect_reason_v5::*;
+    use tests::functional::will_properties_v5::*;
+
+    // Plugin-feature coverage (batch A/B), see the matching `configs/plugin-*`
+    // fixtures; both modules declare their own broker_config/broker_addr.
+    use tests::functional::listener_limits::*;
+    use tests::functional::message_storage::*;
 
     let mut suite = TestSuite::new("functional_v5");
     suite.add(ConnectV5Test);
@@ -513,9 +1091,27 @@ fn build_functional_v5_suite() -> TestSuite {
     // Session management
     suite.add(SessionExpiryV5Test);
     suite.add(SessionTakeoverV5Test);
+    // Server-side DISCONNECT delivery [MQTT-3.1.4-3]: `Session::run` closes the
+    // sink before it builds and sends the v5 DISCONNECT, so the reason code
+    // never reaches the wire (bare FIN instead). Takeover is the reproduction;
+    // see server_disconnect_v5.rs for the full evidence chain.
+    suite.add(TakeoverSendsDisconnect0x8eV5Test);
+    // A takeover racing the outgoing session's own teardown must not be
+    // refused with 0x88 ServerUnavailable: the `kick` ack only feeds a log
+    // line, so it cannot decide the takeover, and the session being replaced
+    // is already gone. See tests/functional/kick_takeover_race.rs.
+    suite.add(KickRaceSessionTakeoverV5Test);
     suite.add(SessionCleanStartV5Test);
     // Will delay
     suite.add(WillDelayV5Test);
+    // Will Message vs DISCONNECT Reason Code (GitHub issue #514):
+    // 0x00 is the only code that may delete the Will, 0x04 and every other
+    // non-0x00 code must publish it, and an abrupt close keeps publishing it
+    // (control arm).
+    suite.add(WillPublishedOnDisconnectRc0x04V5Test);
+    suite.add(WillNotPublishedOnDisconnectRc0x00V5Test);
+    suite.add(WillPublishedOnDisconnectRcNot0x00V5Test);
+    suite.add(WillPublishedOnAbruptCloseV5Test);
     // No local
     suite.add(NoLocalV5Test);
     // Retain handling
@@ -575,6 +1171,99 @@ fn build_functional_v5_suite() -> TestSuite {
     suite.add(ProtocolErrorV5PublishEmptyTopicTest);
     suite.add(ProtocolErrorV5BadRemainingLengthTest);
     suite.add(ProtocolErrorV5ReservedPacketTypeTest);
+    // --- P0 gap-analysis additions (designs/mqtt-5.0-standalone-test-gap-analysis.md) ---
+    // G1/G2: SUBSCRIBE / UNSUBSCRIBE empty payload [MQTT-3.8.3-3 / MQTT-3.10.3-2]
+    suite.add(ProtocolErrorV5SubscribeEmptyPayloadTest);
+    suite.add(ProtocolErrorV5UnsubscribeEmptyPayloadTest);
+    // G3: subscription options — Retain Handling 3 / reserved bits
+    suite.add(ProtocolErrorV5RetainHandling3Test);
+    suite.add(ProtocolErrorV5SubOptionsReservedBitsTest);
+    // G4: Subscription Identifier = 0 / on UNSUBSCRIBE
+    suite.add(ProtocolErrorV5SubIdZeroTest);
+    suite.add(ProtocolErrorV5UnsubscribeWithSubIdTest);
+    // G6: DUP=1 with QoS=0 [MQTT-3.3.1-2]
+    suite.add(ProtocolErrorV5PublishDupOnQos0Test);
+    // G9: DISCONNECT with non-zero reserved fixed-header flags
+    suite.add(ProtocolErrorV5DisconnectBadFlagsTest);
+    // G10: SUBSCRIBE / UNSUBSCRIBE packet id 0 [MQTT-2.2.1-2]
+    suite.add(ProtocolErrorV5SubscribePacketIdZeroTest);
+    suite.add(ProtocolErrorV5UnsubscribePacketIdZeroTest);
+    // G11: invalid UTF-8 topic / user property
+    suite.add(ProtocolErrorV5InvalidUtf8TopicTest);
+    suite.add(ProtocolErrorV5UserPropertyBadUtf8Test);
+    // G12: unsolicited AUTH packet
+    suite.add(ProtocolErrorV5UnsolicitedAuthTest);
+    // G5: CONNECT Will Flag = 0 with Will QoS / Will Retain set
+    suite.add(ConnectV5WillFlagZeroButQosSetTest);
+    suite.add(ConnectV5WillFlagZeroButRetainSetTest);
+    // G7: Topic Alias 0 / exceeding advertised maximum
+    suite.add(TopicAliasV5ZeroTest);
+    suite.add(TopicAliasV5OverMaxTest);
+    // G8: client exceeding the broker's Receive Maximum → 0x93
+    suite.add(FlowControlV5ReceiveMaxViolationTest);
+    // --- P1 gap-analysis additions (designs/mqtt-5.0-standalone-test-gap-analysis.md) ---
+    // G13: QoS downgrade matrix
+    suite.add(QosDowngradeV5MatrixTest);
+    // G14/G15: PUBACK / UNSUBACK reason codes (legal-value assertion + record)
+    suite.add(ReasonCodeV5PubackNoMatchingTest);
+    suite.add(ReasonCodeV5UnsubackNoSubscriptionTest);
+    // G16: Will Message properties
+    suite.add(WillPropertiesV5DeliveryTest);
+    // G17: Message Expiry queue semantics
+    suite.add(MessageExpiryV5QueuedDropTest);
+    suite.add(MessageExpiryV5ForwardedTest);
+    // G18: QoS 1 delivery ordering
+    suite.add(PubSubV5Qos1OrderingTest);
+    // G19: session expiry update on reconnect
+    suite.add(SessionV5ExpiryUpdateOnReconnectTest);
+    // G20: malformed shared subscription filter
+    suite.add(SharedSubV5MalformedFilterTest);
+    // G21: Subscription Identifier update on re-subscribe
+    suite.add(SubscribeIdentifiersV5UpdateTest);
+    // G22: Response Topic wildcards (record-type, MAY-level)
+    suite.add(PublishV5ResponseTopicWildcardTest);
+    // --- P2 gap-analysis additions (designs/mqtt-5.0-standalone-test-gap-analysis.md) ---
+    // G23: Request Problem Information = 0 — no Reason String / User Property on acks
+    suite.add(RequestProblemInfoV5Test);
+    // G24: Request Response Information = 1 — CONNACK Response Information (record-type)
+    suite.add(ConnackResponseInfoV5Test);
+    // G25: multi-property passthrough (Content Type / Correlation Data / …)
+    suite.add(PublishPropertiesPassthroughV5Test);
+    // G26: single SUBSCRIBE with multiple filters at mixed QoS
+    suite.add(SubscribeMultiFilterMixedV5Test);
+    // G27: broker -> client flow control with Receive Maximum = 1
+    suite.add(FlowControlV5InflightCapStrictTest);
+    // Issue #513 (message lifetime): three registered defects, each asserted to
+    // the MQTT 5.0 requirement with its own control arm, so they FAIL on the
+    // current broker (reproducing the issue) and PASS once fixed. See
+    // issue513_message_lifecycle.rs for the root-cause notes.
+    //   H-13 [MQTT-3.3.2-6]    retained Message Expiry Interval not decremented
+    //   X-02 [MQTT-4.4.0-1]    Message Expiry deletes an in-flight QoS 2 exchange
+    //   H-14 [MQTT-3.1.2.11.4] oversized queued message stalls the queue
+    suite.add(RetainedMessageExpiryNotDecrementedV5Test);
+    suite.add(MessageExpiryDeletesQos2InflightV5Test);
+    suite.add(OversizedQueuedMessageStallsQueueV5Test);
+    // H-14 on the retained path: the same defect reached via
+    // `_send_retain_messages`, where it disconnects a small-limit client on
+    // every SUBSCRIBE. PASSes once the oversized message is discarded as
+    // [MQTT-3.1.2-25] requires.
+    suite.add(RetainedOversizedMessageKeepsSessionV5Test);
+    // Issue #532 (broadcast cluster hang, reproduced without the cluster): a
+    // sustained connect ramp against a broker whose per-port handshake pool is
+    // two workers reproduces the incident's node-level signature — handshakes
+    // stop completing while the process stays alive and the TCP-level health
+    // check stays green. Declared NORMAL, so a reproduced stall fails the
+    // suite on purpose (red until the broker is fixed). Runs ~1 minute; fixture
+    // configs/issue532-ramp/, details in issue532_connect_ramp_stall.rs.
+    // Isolate it with `--test issue532`.
+    suite.add(Issue532ConnectRampStallTest);
+    // The same case with the ramp on a TLS listener (the reporter's transport).
+    // TLS handshakes run in a per-connection spawn *outside* the
+    // `max_handshaking_limit`-sized queue, so this variant adds unbounded CPU
+    // work next to that queue's dispatcher — the control is the plain case
+    // above, and everything else is shared. Runs ~1 minute; fixture
+    // configs/issue532-ramp-tls/, details in issue532_tls_connect_ramp_stall.rs.
+    suite.add(Issue532TlsConnectRampStallTest);
     // Retained message edge cases
     suite.add(RetainV5StoreAndDeliverTest);
     suite.add(RetainV5EmptyDeleteTest);
@@ -589,17 +1278,66 @@ fn build_functional_v5_suite() -> TestSuite {
     // Wildcard matching edge cases
     suite.add(WildcardV5CaseSensitiveTest);
     suite.add(WildcardV5LeadingSlashTest);
+    // Connection flapping gate (rmqtt-flapping): the threshold refusal with
+    // CONNACK 0x8A, the $SYS ban notice, the ban lapsing by itself, and the
+    // management API listing and lifting a ban — the plugin installs its
+    // read view into the core's extension slot. Fixture: configs/flapping/;
+    // see tests/functional/flapping_v5.rs.
+    suite.add(FlappingBanV5Test);
+    suite.add(FlappingApiUnbanV5Test);
+    // Which handlers see a refusal (rmqtt-flapping + rmqtt-counter): a CONNECT
+    // the gate refuses must still reach the observers registering at
+    // Priority::MAX, so the delta of `scx.metrics.client_connect` has to cover
+    // it. Needs a broker no other case talks to — a node-wide counter cannot
+    // be read by delta on a shared one. Fixture: configs/flapping-order/ (own
+    // ports); see tests/functional/flapping_order_v5.rs.
+    suite.add(FlappingObserverOrderV5Test);
+    // --- Plugin / listener features that had no coverage at all (batch A/B) ---
+    // Message storage (rmqtt-message-storage): an unexpired message is replayed
+    // to a subscriber that subscribes later, an expired one is not. Fixture:
+    // configs/plugin-msg-store/.
+    suite.add(PluginMsgStoreReplaysToLaterSubscriberTest);
+    suite.add(PluginMsgStoreDropsExpiredMessageTest);
+    // Listener quotas + limited subscriptions (max_subscriptions /
+    // max_topic_levels / max_qos_allowed / `$limit/<n>/`, `$exclusive/`).
+    // Fixture: configs/plugin-limits/.
+    suite.add(PluginLimitMaxSubscriptionsTest);
+    suite.add(PluginLimitMaxTopicLevelsTest);
+    suite.add(PluginLimitMaxQosAllowedTest);
+    suite.add(PluginLimitSubscriptionFormsTest);
     suite
 }
 
-/// Cluster-only reproduction suite (needs two manually started rmqttd nodes,
-/// see `rmqtt-test/configs/pubrel-collision-cluster/`):
-///   mqtt_harness --no-broker --addr 127.0.0.1:1884 --suites functional_v5_cluster
+/// Cluster-only reproduction suite — every case starts its own nodes (or reuses
+/// ones already listening on the fixture's ports), so `--no-broker` is required
+/// and `--addr` is irrelevant:
+///   mqtt_harness --no-broker --workspace . --suites functional_v5_cluster
 fn build_functional_v5_cluster_suite() -> TestSuite {
+    use tests::functional::issue532_cluster_connect_ramp_stall::*;
+    use tests::functional::issue532_live_cluster::*;
+    use tests::functional::issue532_tls_cluster_connect_ramp_stall::*;
     use tests::functional::qos2_pubrel_resume_collision_cluster::*;
 
     let mut suite = TestSuite::new("functional_v5_cluster");
     suite.add(Qos2PubrelResumeCollisionClusterTest);
+    // Issue #532 in cluster form: three broadcast nodes, a connect ramp against
+    // all of them and the cross-node fan-out active. Fails when any node stops
+    // completing handshakes while its process stays alive. Runs ~2 minutes and
+    // owns its nodes (configs/issue532-ramp-cluster/), so it needs --no-broker;
+    // details in issue532_cluster_connect_ramp_stall.rs.
+    suite.add(Issue532ClusterConnectRampStallTest);
+    // The same three-node case with the ramp on each node's TLS listener (the
+    // reporter's transport); the fan-out stays on plain TCP so the ramp is the
+    // only TLS workload. Adds a per-node handshake-rate profile to the
+    // evidence. Owns its nodes (configs/issue532-ramp-tls-cluster/), so it needs
+    // --no-broker; details in issue532_tls_cluster_connect_ramp_stall.rs.
+    suite.add(Issue532TlsClusterConnectRampStallTest);
+    // Issue #532 at the incident's scale: 100K *live* sessions (not the ~400
+    // in-flight handshakes the two cases above reach). Linux/docker only — it
+    // skips on Windows, needs --no-broker, and takes its cluster from
+    // RMQTT_LIVE_NODES. Entry point: rmqtt-test/docker/issue532-live/run.sh;
+    // details in issue532_live_cluster.rs.
+    suite.add(Issue532LiveClusterTest);
     suite
 }
 
@@ -607,6 +1345,7 @@ fn build_stress_suite(client_count: usize) -> TestSuite {
     use tests::stress::fanout::*;
     use tests::stress::load_v311::*;
     use tests::stress::memory::*;
+    use tests::stress::mixed_qos::*;
 
     let mut suite = TestSuite::new("stress");
     suite.add(ConnectionLoadTest { client_count });
@@ -614,6 +1353,8 @@ fn build_stress_suite(client_count: usize) -> TestSuite {
     suite.add(FanOutTest::default());
     suite.add(RetainFloodTest);
     suite.add(SubscriptionStressTest);
+    // P3 G33: mixed QoS 0/1/2 load — exactly-once delivery without loss.
+    suite.add(MixedQosLoadTest::default());
     suite
 }
 
@@ -621,10 +1362,45 @@ fn build_chaos_suite(iterations: usize) -> TestSuite {
     use tests::chaos::disconnect::*;
     use tests::chaos::packet_loss::*;
     use tests::chaos::restart::*;
+    use tests::functional::cluster_session_restart::*;
+    use tests::functional::session_restart_stress::*;
+    use tests::functional::session_storage_expired_cleanup::*;
+    use tests::functional::session_storage_expired_cleanup_edge::*;
+    use tests::functional::session_storage_offline_spawn_bounded::*;
 
     let mut suite = TestSuite::new("chaos");
     suite.add(BrokerRestartTest);
     suite.add(BrokerRestartPubSubTest);
+    // Restored-session routing after restart (GitHub issue #475): requires
+    // the sled-backed session-storage config; split into its own sub-suite.
+    suite.add(BrokerRestartSessionRoutingTest);
+    // Same defect through a two-node cluster (self-managed processes):
+    // cluster-broadcast and cluster-raft variants.
+    suite.add(ClusterBroadcastRestartSessionRoutingTest);
+    suite.add(ClusterRaftRestartSessionRoutingTest);
+    // Whole-cluster restart variants (all nodes stopped, then brought back
+    // up in order): broadcast and raft.
+    suite.add(ClusterWholeRestartSessionRoutingBroadcastTest);
+    suite.add(ClusterWholeRestartSessionRoutingRaftTest);
+    // Stress variants: many persistent sessions × many messages × restart
+    // (single node, broadcast single/whole-cluster restart, raft
+    // single/whole-cluster restart).
+    suite.add(StressSingleNodeRestartTest);
+    suite.add(StressClusterRestartBroadcastTest);
+    suite.add(StressClusterWholeRestartBroadcastTest);
+    suite.add(StressClusterRestartRaftTest);
+    suite.add(StressClusterWholeRestartRaftTest);
+    // Session-storage startup-load optimization: expired offline sessions are
+    // pre-filtered during load (self-managed broker, `session_storage_expired_cleanup`).
+    suite.add(SessionStorageExpiredCleanupTest);
+    // Edge semantics of the same pre-filter: default expiry (0), DISCONNECT
+    // property extending/shortening the session expiry.
+    suite.add(SessionStorageExpiredCleanupEdgeTest);
+    // Issue #495 / PR #499 reproduction: offline-message persistence must be
+    // bounded — a flood to offline sessions must not blow up anonymous memory
+    // (self-managed broker, cross-platform memory sampling: Linux RssAnon /
+    // Windows PrivateMemorySize64, other platforms skipped).
+    suite.add(SessionStorageOfflineSpawnBoundedTest);
     suite.add(ConnectionChurnTest { cycles: iterations * 5 });
     suite.add(ReconnectStormTest { client_count: 50 });
     suite.add(Qos1ReliabilityTest { message_count: iterations * 10 });

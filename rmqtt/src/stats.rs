@@ -99,6 +99,12 @@ pub struct Stats {
     pub retaineds: Counter,
     /// Delayed publish messages pending delivery.
     pub delayed_publishs: Counter,
+    /// Bans currently in force, as reported by the connection gate plugin.
+    ///
+    /// A *live* value (it falls when a ban lapses), which is why it lives here
+    /// and not in [`crate::metrics::Metrics`]: those counters only increase.
+    /// Stays at zero when no gate plugin is installed.
+    pub flapping_banned: Counter,
     /// Active gRPC server request handlers.
     pub grpc_server_actives: Counter,
     /// Active gRPC client tasks, keyed by peer node ID.
@@ -150,6 +156,7 @@ impl Stats {
             message_storages: Counter::new(),
             retaineds: Counter::new(),
             delayed_publishs: Counter::new(),
+            flapping_banned: Counter::new(),
             grpc_server_actives: Counter::new(),
             grpc_clients_actives: HashMap::default(),
 
@@ -248,6 +255,12 @@ impl Stats {
             self.delayed_publishs.current_set(delayed_sender.len().await as isize);
         }
 
+        #[cfg(feature = "flapping")]
+        {
+            let flapping = scx.extends.flapping().await;
+            self.flapping_banned.current_set(flapping.banned_count().await as isize);
+        }
+
         #[cfg(feature = "debug")]
         let shared = scx.extends.shared().await;
 
@@ -283,6 +296,7 @@ impl Stats {
             forwards: self.forwards.clone(),
             message_storages: self.message_storages.clone(),
             delayed_publishs: self.delayed_publishs.clone(),
+            flapping_banned: self.flapping_banned.clone(),
             grpc_server_actives: self.grpc_server_actives.clone(),
             grpc_clients_actives,
 
@@ -335,6 +349,7 @@ impl Stats {
         self.message_storages.add(&other.message_storages);
         self.retaineds.merge(&other.retaineds);
         self.delayed_publishs.merge(&other.delayed_publishs);
+        self.flapping_banned.merge(&other.flapping_banned);
         self.grpc_server_actives.merge(&other.grpc_server_actives);
         self.grpc_clients_actives.extend(other.grpc_clients_actives);
 
@@ -405,6 +420,8 @@ impl Stats {
             "message_storages.max": self.message_storages.max(),
             "delayed_publishs.count": self.delayed_publishs.count(),
             "delayed_publishs.max": self.delayed_publishs.max(),
+            "flapping_banned.count": self.flapping_banned.count(),
+            "flapping_banned.max": self.flapping_banned.max(),
 
             "topics.count": topics.count(),
             "topics.max": topics.max(),

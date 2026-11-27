@@ -397,9 +397,24 @@ impl Remote {
     #[inline]
     pub fn make_topic(&self, topic: &str) -> ntex::util::ByteString {
         if self.topic_has_pattern() {
-            ntex::util::ByteString::from(self.topic().replace("${local.topic}", topic))
+            ntex::util::ByteString::from(self.topic().replace(LOCAL_TOPIC_PLACEHOLDER, topic))
         } else {
             ntex::util::ByteString::from(self.topic())
+        }
+    }
+
+    /// The part of `remote.topic` that is fixed at configuration time, with
+    /// [`LOCAL_TOPIC_PLACEHOLDER`] reduced to a single legal level.
+    ///
+    /// This is what [`PluginConfig::validate`] checks: a wildcard outside the
+    /// placeholder can never become a legal topic name, whatever the local
+    /// topic is, whereas the substituted value itself is only known at runtime.
+    #[inline]
+    pub fn topic_skeleton(&self) -> String {
+        if self.topic_has_pattern() {
+            self.topic().replace(LOCAL_TOPIC_PLACEHOLDER, PLACEHOLDER_STAND_IN)
+        } else {
+            self.topic().to_owned()
         }
     }
 
@@ -440,7 +455,7 @@ impl Remote {
         D: Deserializer<'de>,
     {
         let topic = String::deserialize(deserializer)?;
-        let has_pattern = topic.contains("${local.topic}");
+        let has_pattern = topic.contains(LOCAL_TOPIC_PLACEHOLDER);
         Ok((topic, has_pattern))
     }
 }
@@ -455,6 +470,108 @@ pub struct Local {
 }
 
 impl Local {}
+
+/// The `${local.topic}` placeholder as it appears in `remote.topic`.
+const LOCAL_TOPIC_PLACEHOLDER: &str = "${local.topic}";
+
+/// The level substituted for [`LOCAL_TOPIC_PLACEHOLDER`] when a mapping's
+/// fixed part is checked: one legal level, which is what the placeholder
+/// resolves to at runtime (the topic of the message being forwarded).
+const PLACEHOLDER_STAND_IN: &str = "x";
+
+impl PluginConfig {
+    /// Reject bridge mappings that can never produce a legal topic name.
+    ///
+    /// In an egress entry `remote.topic` is the topic the bridge publishes on
+    /// the peer — a topic NAME. The filter side of the same entry is
+    /// `local.topic_filter`, which is what the bridge subscribes to locally. A
+    /// wildcard that ends up in a name cannot be encoded on the wire, and a
+    /// peer that checks names answers by dropping the connection, which is the
+    /// reconnect-and-resend loop reported as issue #451.
+    ///
+    /// Only the part of the mapping that is fixed at configuration time is
+    /// checked, with the placeholder reduced to a single stand-in level, so
+    /// `a/#/${local.topic}` is still rejected. Whether the substituted value
+    /// itself is a legal name is a runtime concern, not a configuration one.
+    ///
+    /// The filter side is checked as well (issue #540): `local.topic_filter`
+    /// selects the local topics this entry forwards, so a malformed filter makes
+    /// `_start()` fail and the bridge restart every three seconds, and one of the
+    /// peer-facing subscription forms (`$share/...`, `$limit/...`,
+    /// `$exclusive/...`) makes the entry match only a topic *named* like that
+    /// prefix — silently dead for the topics the operator meant.
+    ///
+    /// Disabled bridges are skipped: they never connect, and failing them here
+    /// would break configurations that are currently harmless.
+    pub fn validate(&self) -> Result<()> {
+        for (i, bridge) in self.bridges.iter().enumerate() {
+            if !bridge.enable {
+                continue;
+            }
+            for (j, entry) in bridge.entries.iter().enumerate() {
+                if !rmqtt::topic::is_valid_topic_name(entry.remote.topic_skeleton()) {
+                    return Err(anyhow!(
+                        "bridges[{i}].entries[{j}].remote.topic = {:?} cannot produce a legal topic \
+                         name: a topic name must not be empty, must not contain the wildcards `+` \
+                         or `#` (MQTT 5.0 [MQTT-3.3.2-2]), and must be at most 65535 bytes long. \
+                         `+` and `#` belong in `local.topic_filter`, which is a topic filter.",
+                        entry.remote.topic()
+                    ));
+                }
+
+                // `local.topic_filter` is what this entry subscribes to on the
+                // local broker; `_start()` feeds it to `Topic::from_str` and the
+                // resulting trie. A malformed filter fails there and the bridge
+                // restarts every three seconds, and an omitted one becomes ""
+                // (`#[serde(default)]`), which installs a node that can never
+                // match a published topic — both silently (issue #540).
+                if !rmqtt::topic::is_valid_topic_filter(&entry.local.topic_filter) {
+                    return Err(anyhow!(
+                        "bridges[{i}].entries[{j}].local.topic_filter = {:?} is not a valid MQTT \
+                         topic filter: a topic filter must be at least one character long, must be \
+                         at most 65535 bytes, must not contain U+0000, and `#` is legal only as \
+                         the last level (MQTT 5.0 [MQTT-4.7.1-1]).",
+                        entry.local.topic_filter
+                    ));
+                }
+
+                // The three `$`-prefixed subscription forms are peer-facing: they
+                // are meaningful in a SUBSCRIBE sent to a peer, not in this
+                // plugin's local trie. Locally the filter is matched literally
+                // against published topic names, so such an entry only fires for
+                // a client publishing to a topic name that itself starts with the
+                // same prefix — almost certainly an ingress/egress mix-up.
+                //
+                // This is a policy, not an impossibility: `$`-prefixed levels do
+                // occur locally (`$SYS/...` is published by the sys-topic plugin),
+                // which is why the check names these three forms instead of
+                // rejecting `$` outright.
+                let filter = entry.local.topic_filter.as_str();
+                let peer_facing = if rmqtt::topic::is_shared_subscription(filter) {
+                    Some("`$share/<group>/<filter>` shared-subscription")
+                } else if rmqtt::topic::is_limit_subscription(filter) {
+                    Some("`$limit/<n>/<filter>` limited-subscription")
+                } else if rmqtt::topic::is_exclusive_subscription(filter) {
+                    Some("`$exclusive/<filter>` exclusive-subscription")
+                } else {
+                    None
+                };
+                if let Some(form) = peer_facing {
+                    return Err(anyhow!(
+                        "bridges[{i}].entries[{j}].local.topic_filter = {:?} uses the {form} \
+                         form, which is a peer-facing construct. Locally this filter is matched \
+                         literally against published topic names, so the entry would only fire \
+                         for a client publishing to a topic name that itself starts with that \
+                         prefix — almost certainly an ingress/egress mix-up. This form belongs in \
+                         `remote.topic` of an ingress bridge entry, not in `local.topic_filter`.",
+                        entry.local.topic_filter
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
 
 fn last_will_basic(obj: &Map<String, Value>) -> Result<(QoS, bool, ByteString, Bytes)> {
     let qos = obj
@@ -474,4 +591,116 @@ fn last_will_basic(obj: &Map<String, Value>) -> Result<(QoS, bool, ByteString, B
         Bytes::from(String::from(message))
     };
     Ok((qos, retain, ByteString::from(topic), message))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A one-entry config carrying both sides of the mapping explicitly.
+    ///
+    /// Keeping both settable matters: an entry with a legal `remote.topic` but
+    /// an empty `local.topic_filter` would otherwise be reported for the filter
+    /// side, and vice versa.
+    fn config_with(enable: bool, remote_topic: &str, topic_filter: &str) -> PluginConfig {
+        PluginConfig {
+            bridges: vec![Bridge {
+                enable,
+                entries: vec![Entry {
+                    local: Local { topic_filter: topic_filter.to_owned() },
+                    remote: Remote {
+                        topic: (remote_topic.to_owned(), remote_topic.contains(LOCAL_TOPIC_PLACEHOLDER)),
+                        ..Remote::default()
+                    },
+                }],
+                ..Bridge::default()
+            }],
+        }
+    }
+
+    /// The name-side tests: the filter side is held legal on purpose.
+    fn config(enable: bool, remote_topic: &str) -> PluginConfig {
+        config_with(enable, remote_topic, "local/forward/#")
+    }
+
+    #[test]
+    fn validate_accepts_legal_remote_topics() {
+        for topic in
+            ["${local.topic}", "mirror/ing/${local.topic}", "mirror/plain", "mirror/${local.topic}/x"]
+        {
+            assert!(config(true, topic).validate().is_ok(), "`{topic}` must be accepted");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_filter_shaped_remote_topic() {
+        let err = config(true, "mirror/hash/#").validate().unwrap_err().to_string();
+        assert!(err.contains("bridges[0].entries[0].remote.topic"), "{err}");
+        assert!(err.contains("mirror/hash/#"), "{err}");
+    }
+
+    #[test]
+    fn validate_rejects_a_wildcard_in_the_fixed_part() {
+        assert!(config(true, "mirror/#/${local.topic}").validate().is_err());
+        assert!(config(true, "mirror/+/${local.topic}").validate().is_err());
+    }
+
+    #[test]
+    fn validate_skips_disabled_bridges() {
+        assert!(config(false, "mirror/hash/#").validate().is_ok());
+    }
+
+    /// `local.topic_filter` is a filter against local topics: `#` is legal (and
+    /// only as the last level).
+    #[test]
+    fn validate_accepts_legal_local_topic_filters() {
+        for filter in ["a", "#", "+", "a/b/#", "local/forward/#", "local/+/#", "eg/plain/#"] {
+            assert!(
+                config_with(true, "mirror/plain", filter).validate().is_ok(),
+                "`{filter}` must be accepted"
+            );
+        }
+    }
+
+    /// Issue #540: a malformed or omitted filter is refused while the config is
+    /// loaded, and the message names the offending field.
+    #[test]
+    fn validate_rejects_a_malformed_local_topic_filter() {
+        for filter in ["", "eg/#/x", "a#", "#/a", "a/#/"] {
+            let err = config_with(true, "mirror/plain", filter).validate().unwrap_err().to_string();
+            assert!(err.contains("bridges[0].entries[0].local.topic_filter"), "`{filter}`: {err}");
+            assert!(err.contains("topic filter"), "`{filter}`: {err}");
+        }
+    }
+
+    /// `$share/...`, `$limit/...` and `$exclusive/...` are syntactically valid
+    /// filters, but they are peer-facing subscription forms: locally they only
+    /// match a topic *named* like that prefix, so they are refused — while a
+    /// `$SYS/#` filter (a `$`-prefixed level that really is published locally)
+    /// stays legal.
+    #[test]
+    fn validate_rejects_a_peer_facing_subscription_filter() {
+        for filter in [
+            "$share/g/eg/#",
+            "$share//eg/#",
+            "$share/g/plain",
+            "$limit/10/eg/#",
+            "$limit/abc/eg/#",
+            "$exclusive/eg/#",
+        ] {
+            let err = config_with(true, "mirror/plain", filter).validate().unwrap_err().to_string();
+            assert!(err.contains("bridges[0].entries[0].local.topic_filter"), "`{filter}`: {err}");
+            assert!(err.contains("peer-facing"), "`{filter}`: {err}");
+            assert!(err.contains("ingress/egress"), "`{filter}`: {err}");
+        }
+
+        // `$`-prefixed levels are not the problem; these three forms are.
+        assert!(config_with(true, "mirror/plain", "$SYS/#").validate().is_ok());
+    }
+
+    #[test]
+    fn validate_skips_disabled_bridges_on_the_filter_side_too() {
+        assert!(config_with(false, "mirror/plain", "eg/#/x").validate().is_ok());
+        assert!(config_with(false, "mirror/plain", "$share/g/eg/#").validate().is_ok());
+    }
 }

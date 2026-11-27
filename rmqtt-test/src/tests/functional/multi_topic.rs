@@ -205,3 +205,79 @@ impl TestCase for MessageOrderingTest {
         Duration::from_secs(40)
     }
 }
+
+/// Test that messages arrive in order at QoS 2 [MQTT-4.6.0-2].
+///
+/// Mirrors `MessageOrderingTest` (QoS 1) for the QoS 2 path: ten sequential
+/// QoS 2 publishes must be delivered in order.
+pub struct OrderingQos2V311Test;
+
+impl TestCase for OrderingQos2V311Test {
+    fn name(&self) -> &str {
+        "ordering_qos2_v311"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let result = rt.block_on(async {
+            let publisher = crate::mqtt::v311::MqttV311Client::connect(
+                &ctx.config.broker_addr,
+                "ordering-qos2-pub",
+                ctx.config.connect_timeout,
+            )
+            .await?;
+            let mut subscriber = crate::mqtt::v311::MqttV311Client::connect(
+                &ctx.config.broker_addr,
+                "ordering-qos2-sub",
+                ctx.config.connect_timeout,
+            )
+            .await?;
+
+            let topic = "test/ordering/qos2/seq";
+            subscriber.subscribe(topic, QoS::ExactlyOnce).await?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+
+            // Publish 10 sequential QoS 2 messages
+            for i in 0u8..10 {
+                publisher.publish(topic, &[i], QoS::ExactlyOnce, false).await?;
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+
+            // Collect messages in order
+            let mut seq = Vec::new();
+            for _ in 0..10 {
+                if let Some(msg) = subscriber.recv_message_timeout(Duration::from_secs(3)).await {
+                    if msg.payload.len() == 1 {
+                        seq.push(msg.payload[0]);
+                    }
+                }
+            }
+
+            publisher.disconnect().await?;
+            subscriber.disconnect().await?;
+
+            // Verify messages arrived in order
+            let ordered: Vec<u8> = (0..10).collect();
+            if seq == ordered {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(
+                    "QoS2 message ordering failed: expected {:?}, got {:?} [MQTT-4.6.0-2]",
+                    ordered,
+                    seq
+                ))
+            }
+        });
+
+        match result {
+            Ok(()) => TestResult::passed(self.name(), "functional_v311", start.elapsed()),
+            Err(e) => TestResult::failed(self.name(), "functional_v311", start.elapsed(), e.to_string()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(40)
+    }
+}

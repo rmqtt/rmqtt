@@ -54,6 +54,8 @@ fn write_summary_section(file: &mut std::fs::File, summary: &TestSummary) -> Res
     writeln!(file, "  Errors:  {}", summary.errors)?;
     writeln!(file, "  Timeout: {}", summary.timeouts)?;
     writeln!(file, "  Skipped: {}", summary.skipped)?;
+    writeln!(file, "  ExpectedFail: {}", summary.expected_fail)?;
+    writeln!(file, "  Info:    {}", summary.info)?;
     writeln!(file, "  Duration: {:.1}s", summary.total_duration.as_secs_f64())?;
     Ok(())
 }
@@ -65,6 +67,8 @@ fn write_test_detail(file: &mut std::fs::File, result: &TestResult) -> Result<()
         TestVerdict::Skipped(_) => "SKIPPED",
         TestVerdict::Error(_) => "ERROR",
         TestVerdict::Timeout => "TIMEOUT",
+        TestVerdict::ExpectedFail(_) => "EXPECTED-FAIL",
+        TestVerdict::Info(_) => "INFO",
     };
 
     writeln!(file, "───────────────────────────────────────────────────────────────")?;
@@ -94,6 +98,22 @@ fn write_test_detail(file: &mut std::fs::File, result: &TestResult) -> Result<()
             writeln!(file, "  HINT: The test may be waiting for a response that never comes.")?;
             writeln!(file, "  This often indicates a protocol-level issue (e.g., broker rejected")?;
             writeln!(file, "  a packet, or the client sent a malformed packet).")?;
+        }
+        TestVerdict::ExpectedFail(reason) => {
+            writeln!(file)?;
+            writeln!(file, "  EXPECTED-FAIL OBSERVATION (broker violates the spec; see linked issue):")?;
+            for line in reason.lines() {
+                writeln!(file, "    {}", line)?;
+            }
+            writeln!(file)?;
+        }
+        TestVerdict::Info(observation) => {
+            writeln!(file)?;
+            writeln!(file, "  OBSERVATION (record-type test, no pass/fail assertion):")?;
+            for line in observation.lines() {
+                writeln!(file, "    {}", line)?;
+            }
+            writeln!(file)?;
         }
         TestVerdict::Passed => {
             if let Some(note) = &result.note {
@@ -137,6 +157,8 @@ fn verdict_reason(verdict: &TestVerdict) -> String {
     match verdict {
         TestVerdict::Failed(r) | TestVerdict::Error(r) | TestVerdict::Skipped(r) => r.clone(),
         TestVerdict::Timeout => "timeout".to_string(),
+        TestVerdict::ExpectedFail(r) => format!("expected-fail: {}", r),
+        TestVerdict::Info(r) => format!("info: {}", r),
         TestVerdict::Passed => "passed".to_string(),
     }
 }

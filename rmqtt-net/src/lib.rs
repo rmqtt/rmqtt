@@ -40,13 +40,13 @@ mod ws;
 pub use quic::QuinnBiStream;
 
 /// Server configuration and listener management
-pub use builder::{Builder, Listener, ListenerType};
+pub use builder::{Builder, Listener, ListenerType, SpiffeUsernameFormat};
 
 /// Trait for extracting TLS certificate information from client connections
 pub use cert_extractor::TlsCertExtractor;
 
 /// Error types for MQTT operations
-pub use error::MqttError;
+pub use error::{is_over_max_packet_size, MqttError};
 
 /// TLS implementation providers
 #[cfg(feature = "tls")]

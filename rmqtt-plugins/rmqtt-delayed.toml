@@ -1,0 +1,15 @@
+##--------------------------------------------------------------------
+## rmqtt-delayed
+##--------------------------------------------------------------------
+
+# Maximum number of pending delayed messages per node.
+# When the limit is reached the behavior is controlled by `publish_immediate`.
+# Default: 100_000
+#publish_max = 100_000
+
+# Behavior when `publish_max` is exceeded:
+# true  - message will be forwarded immediately as a regular message
+# false - message will be dropped (fires the `message_dropped` hook
+#         with reason `DelayedPublishRefused`)
+# Default: true
+#publish_immediate = true

@@ -37,7 +37,7 @@ use bytestring::ByteString;
 use rmqtt_codec::v5::ConnectAckReason;
 use rmqtt_codec::v5::{
     Connect, ConnectAck, LastWill, Packet as PacketV5, PublishAck, PublishAck2, PublishAck2Reason,
-    PublishAckReason, PublishProperties, SubscriptionOptions, UserProperties,
+    PublishAckReason, PublishProperties, SubscriptionOptions, UnsubscribeAckReason, UserProperties,
 };
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time;
@@ -60,6 +60,13 @@ pub struct IncomingMessage {
     pub user_properties: Vec<(ByteString, ByteString)>,
     pub is_utf8_payload: bool,
     pub message_expiry_interval: Option<NonZeroU32>,
+    /// Subscription Identifiers attached by the broker to this delivery
+    /// (empty for QoS 0-less brokers or when no Subscription Identifier
+    /// was used in the matching subscriptions).
+    pub subscription_ids: Vec<NonZeroU32>,
+    /// Packet identifier of the QoS 1/2 delivery (None for QoS 0), so tests
+    /// that disable auto-acknowledgement can ack manually.
+    pub packet_id: Option<NonZeroU16>,
 }
 
 /// Subscribe result
@@ -68,6 +75,9 @@ pub struct SubscribeAck {
     pub packet_id: NonZeroU16,
     pub status: Vec<rmqtt_codec::v5::SubscribeAckReason>,
 }
+
+/// Shared UNSUBACK waiter map: packet id -> one-shot sender of the ack.
+type UnsubAckWaiters = Arc<Mutex<HashMap<u16, oneshot::Sender<Result<Vec<UnsubscribeAckReason>>>>>>;
 
 /// MQTT v5.0 Client - enhanced with properties
 pub struct MqttV5Client {
@@ -87,6 +97,20 @@ pub struct MqttV5Client {
 
     /// Incoming PUBREL packet id receiver (broker -> client, QoS 2 part 2)
     pubrel_rx: mpsc::UnboundedReceiver<NonZeroU16>,
+
+    /// Whether to automatically answer incoming QoS 1 PUBLISH with PUBACK.
+    /// Disabling allows tests to stall broker -> client in-flight (flow
+    /// control / Receive Maximum verification).
+    auto_puback: Arc<AtomicBool>,
+
+    /// PUBACK (QoS 1) reason codes from the broker, as (packet_id, reason_code u8)
+    puback_rx: mpsc::UnboundedReceiver<(NonZeroU16, u8)>,
+
+    /// PUBREC (QoS 2) reason codes from the broker, as (packet_id, reason_code u8)
+    pubrec_rx: mpsc::UnboundedReceiver<(NonZeroU16, u8)>,
+
+    /// Ack waiters for UNSUBACK
+    unsuback_waiters: UnsubAckWaiters,
 
     connack: Box<ConnectAck>,
 }
@@ -130,9 +154,13 @@ impl MqttV5Client {
         let connected = Arc::new(AtomicBool::new(true));
 
         let (message_tx, message_rx) = mpsc::unbounded_channel();
+        let (puback_tx, puback_rx) = mpsc::unbounded_channel();
+        let (pubrec_tx, pubrec_rx) = mpsc::unbounded_channel();
         let suback_waiters: Arc<Mutex<HashMap<u16, oneshot::Sender<Result<SubscribeAck>>>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let unsuback_waiters: UnsubAckWaiters = Arc::new(Mutex::new(HashMap::new()));
         let auto_pubcomp = Arc::new(AtomicBool::new(true));
+        let auto_puback = Arc::new(AtomicBool::new(true));
         let (pubrel_tx, pubrel_rx) = mpsc::unbounded_channel::<NonZeroU16>();
 
         //
@@ -187,8 +215,12 @@ impl MqttV5Client {
             let writer = writer.clone();
             let connected = connected.clone();
             let suback_waiters = suback_waiters.clone();
+            let unsuback_waiters = unsuback_waiters.clone();
             let auto_pubcomp = auto_pubcomp.clone();
+            let auto_puback = auto_puback.clone();
             let pubrel_tx = pubrel_tx.clone();
+            let puback_tx = puback_tx.clone();
+            let pubrec_tx = pubrec_tx.clone();
 
             tokio::spawn(async move {
                 loop {
@@ -197,6 +229,21 @@ impl MqttV5Client {
                         Err(err) => {
                             eprintln!("mqtt read error: {:?}", err);
                             connected.store(false, Ordering::Relaxed);
+                            // Resolve all pending ack waiters with an error so
+                            // callers fail fast instead of waiting for their
+                            // own timeouts.
+                            for (_, tx) in suback_waiters.lock().await.drain() {
+                                let _ = tx.send(Err(anyhow!(
+                                    "connection closed by broker (read error: {:?})",
+                                    err
+                                )));
+                            }
+                            for (_, tx) in unsuback_waiters.lock().await.drain() {
+                                let _ = tx.send(Err(anyhow!(
+                                    "connection closed by broker (read error: {:?})",
+                                    err
+                                )));
+                            }
                             break;
                         }
                     };
@@ -214,6 +261,7 @@ impl MqttV5Client {
                                 user_properties,
                                 is_utf8_payload,
                                 message_expiry_interval,
+                                subscription_ids,
                             ) = if let Some(ref props) = pub_msg.properties {
                                 (
                                     props.response_topic.clone(),
@@ -222,9 +270,10 @@ impl MqttV5Client {
                                     props.user_properties.clone(),
                                     props.is_utf8_payload,
                                     props.message_expiry_interval,
+                                    props.subscription_ids.clone(),
                                 )
                             } else {
-                                (None, None, None, Vec::new(), false, None)
+                                (None, None, None, Vec::new(), false, None, Vec::new())
                             };
 
                             let msg = IncomingMessage {
@@ -239,12 +288,14 @@ impl MqttV5Client {
                                 user_properties,
                                 is_utf8_payload,
                                 message_expiry_interval,
+                                subscription_ids,
+                                packet_id,
                             };
                             let _ = message_tx.send(msg);
 
                             // Send protocol acknowledgment
                             if let Some(pkt_id) = packet_id {
-                                if qos == QoSTest::AtLeastOnce {
+                                if qos == QoSTest::AtLeastOnce && auto_puback.load(Ordering::Relaxed) {
                                     // QoS 1: send PUBACK
                                     let ack = PacketV5::PublishAck(PublishAck {
                                         packet_id: pkt_id,
@@ -294,12 +345,20 @@ impl MqttV5Client {
 
                         // PUBACK (QoS 1) - broker ack for our publish
                         PacketV5::PublishAck(puback) => {
-                            eprintln!("PUBACK received for packet_id: {}", puback.packet_id);
+                            let _ = puback_tx.send((puback.packet_id, puback.reason_code as u8));
                         }
 
                         // PUBREC (QoS 2) - broker ack for our publish
                         PacketV5::PublishReceived(pubrec) => {
-                            eprintln!("PUBREC received for packet_id: {}", pubrec.packet_id);
+                            let _ = pubrec_tx.send((pubrec.packet_id, pubrec.reason_code as u8));
+                        }
+
+                        // UNSUBACK - resolve the pending unsubscribe waiter
+                        PacketV5::UnsubscribeAck(unsuback) => {
+                            let tx = { unsuback_waiters.lock().await.remove(&unsuback.packet_id.get()) };
+                            if let Some(tx) = tx {
+                                let _ = tx.send(Ok(unsuback.status));
+                            }
                         }
 
                         // PUBCOMP (QoS 2) - broker ack for our PUBREL
@@ -313,8 +372,24 @@ impl MqttV5Client {
                         }
 
                         // DISCONNECT
-                        PacketV5::Disconnect(_) => {
-                            eprintln!("Received DISCONNECT from broker");
+                        PacketV5::Disconnect(d) => {
+                            eprintln!("Received DISCONNECT from broker, reason: {:?}", d.reason_code);
+                            connected.store(false, Ordering::Relaxed);
+                            // Resolve all pending ack waiters with an error so
+                            // callers fail fast instead of waiting for their
+                            // own timeouts.
+                            for (_, tx) in suback_waiters.lock().await.drain() {
+                                let _ = tx.send(Err(anyhow!(
+                                    "broker disconnected without ack (reason {:?})",
+                                    d.reason_code
+                                )));
+                            }
+                            for (_, tx) in unsuback_waiters.lock().await.drain() {
+                                let _ = tx.send(Err(anyhow!(
+                                    "broker disconnected without ack (reason {:?})",
+                                    d.reason_code
+                                )));
+                            }
                             break;
                         }
 
@@ -339,7 +414,11 @@ impl MqttV5Client {
             message_rx,
             suback_waiters,
             auto_pubcomp,
+            auto_puback,
             pubrel_rx,
+            puback_rx,
+            pubrec_rx,
+            unsuback_waiters,
             connack: Box::new(connack),
         })
     }
@@ -484,6 +563,26 @@ impl MqttV5Client {
         self.auto_pubcomp.store(enabled, Ordering::Relaxed);
     }
 
+    /// Enable/disable the automatic PUBACK sent in reply to incoming QoS 1
+    /// PUBLISH. Disabling lets a test stall the broker -> client in-flight
+    /// window (e.g. to verify the broker honours the client's Receive Maximum)
+    /// and acknowledge manually via [`Self::send_puback`].
+    pub fn set_auto_puback(&self, enabled: bool) {
+        self.auto_puback.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Manually acknowledge an incoming QoS 1 PUBLISH (broker -> client).
+    pub async fn send_puback(&self, packet_id: NonZeroU16) -> Result<()> {
+        let ack = PacketV5::PublishAck(PublishAck {
+            packet_id,
+            reason_code: PublishAckReason::Success,
+            properties: UserProperties::default(),
+            reason_string: None,
+        });
+        self.writer.lock().await.send_packet(&ack).await?;
+        Ok(())
+    }
+
     /// Wait for an incoming PUBREL packet id (broker -> client, QoS 2 part 2)
     pub async fn recv_pubrel_timeout(&mut self, timeout: Duration) -> Option<u16> {
         time::timeout(timeout, self.pubrel_rx.recv()).await.ok().and_then(|r| r).map(|pid| pid.get())
@@ -495,6 +594,58 @@ impl MqttV5Client {
             .await
     }
 
+    /// Subscribe multiple topic filters in a SINGLE SUBSCRIBE packet, each
+    /// with its own QoS (default options otherwise). The SUBACK statuses are
+    /// returned in filter order so tests can verify per-filter grants.
+    pub async fn subscribe_many(&mut self, filters: &[(&str, QoSTest)]) -> Result<SubscribeAck> {
+        let packet_id = NonZeroU16::new(u16::from(self.packet_id_counter.next()))
+            .ok_or_else(|| anyhow!("packet id overflow"))?;
+
+        let topic_filters = filters
+            .iter()
+            .map(|(topic, qos)| {
+                (
+                    ByteString::from(*topic),
+                    SubscriptionOptions {
+                        qos: *qos,
+                        no_local: false,
+                        retain_as_published: false,
+                        retain_handling: rmqtt_codec::v5::RetainHandling::AtSubscribe,
+                    },
+                )
+            })
+            .collect();
+
+        let subscribe_pkt = PacketV5::Subscribe(rmqtt_codec::v5::Subscribe {
+            packet_id,
+            id: None,
+            user_properties: Vec::new(),
+            topic_filters,
+        });
+
+        // REGISTER ACK WAITER
+        let (tx, rx) = oneshot::channel();
+        self.suback_waiters.lock().await.insert(packet_id.get(), tx);
+
+        // SEND SUBSCRIBE
+        self.writer.lock().await.send_packet(&subscribe_pkt).await?;
+
+        // Bail out early if the connection died while writing the packet
+        // (avoids racing the reader task's waiter cleanup).
+        if !self.is_connected() {
+            self.suback_waiters.lock().await.remove(&packet_id.get());
+            return Err(anyhow!("connection closed by broker while waiting for SUBACK"));
+        }
+
+        // WAIT SUBACK
+        let ack = time::timeout(Duration::from_secs(15), rx)
+            .await
+            .map_err(|_| anyhow!("subscribe timeout"))?
+            .map_err(|_| anyhow!("suback waiter dropped"))??;
+
+        Ok(ack)
+    }
+
     /// Subscribe with MQTT 5.0 subscription options
     pub async fn subscribe_with_options(
         &mut self,
@@ -504,12 +655,42 @@ impl MqttV5Client {
         retain_as_published: bool,
         retain_handling: rmqtt_codec::v5::RetainHandling,
     ) -> Result<SubscribeAck> {
+        self.subscribe_full(topic, qos, no_local, retain_as_published, retain_handling, None).await
+    }
+
+    /// Subscribe with a Subscription Identifier (MQTT-3.8.2.1.2), used to
+    /// verify that deliveries carry the identifier and that re-subscribing
+    /// with a new identifier updates it.
+    pub async fn subscribe_with_id(
+        &mut self,
+        topic: &str,
+        qos: QoSTest,
+        subscription_id: u32,
+    ) -> Result<SubscribeAck> {
+        self.subscribe_full(topic, qos, false, false, rmqtt_codec::v5::RetainHandling::AtSubscribe, {
+            Some(
+                NonZeroU32::new(subscription_id)
+                    .ok_or_else(|| anyhow!("subscription id must be non-zero"))?,
+            )
+        })
+        .await
+    }
+
+    async fn subscribe_full(
+        &mut self,
+        topic: &str,
+        qos: QoSTest,
+        no_local: bool,
+        retain_as_published: bool,
+        retain_handling: rmqtt_codec::v5::RetainHandling,
+        subscription_id: Option<NonZeroU32>,
+    ) -> Result<SubscribeAck> {
         let packet_id = NonZeroU16::new(u16::from(self.packet_id_counter.next()))
             .ok_or_else(|| anyhow!("packet id overflow"))?;
 
         let subscribe_pkt = PacketV5::Subscribe(rmqtt_codec::v5::Subscribe {
             packet_id,
-            id: None,
+            id: subscription_id,
             user_properties: Vec::new(),
             topic_filters: vec![(
                 ByteString::from(topic),
@@ -524,6 +705,13 @@ impl MqttV5Client {
         // SEND SUBSCRIBE
         self.writer.lock().await.send_packet(&subscribe_pkt).await?;
 
+        // Bail out early if the connection died while writing the packet
+        // (avoids racing the reader task's waiter cleanup).
+        if !self.is_connected() {
+            self.suback_waiters.lock().await.remove(&packet_id.get());
+            return Err(anyhow!("connection closed by broker while waiting for SUBACK"));
+        }
+
         // WAIT SUBACK
         let ack = time::timeout(Duration::from_secs(15), rx)
             .await
@@ -535,6 +723,12 @@ impl MqttV5Client {
 
     /// Unsubscribe from a topic
     pub async fn unsubscribe(&mut self, topic: &str) -> Result<()> {
+        self.unsubscribe_with_ack(topic).await.map(|_| ())
+    }
+
+    /// Unsubscribe and wait for the UNSUBACK, returning the per-filter
+    /// reason codes (e.g. 0x00 Success, 0x11 No Subscription Existed).
+    pub async fn unsubscribe_with_ack(&mut self, topic: &str) -> Result<Vec<UnsubscribeAckReason>> {
         let packet_id = NonZeroU16::new(u16::from(self.packet_id_counter.next()))
             .ok_or_else(|| anyhow!("packet id overflow"))?;
 
@@ -544,9 +738,36 @@ impl MqttV5Client {
             user_properties: Vec::new(),
         });
 
+        // REGISTER ACK WAITER
+        let (tx, rx) = oneshot::channel();
+        self.unsuback_waiters.lock().await.insert(packet_id.get(), tx);
+
         self.writer.lock().await.send_packet(&unsub).await?;
 
-        Ok(())
+        // Bail out early if the connection died while writing the packet
+        // (avoids racing the reader task's waiter cleanup).
+        if !self.is_connected() {
+            self.unsuback_waiters.lock().await.remove(&packet_id.get());
+            return Err(anyhow!("connection closed by broker while waiting for UNSUBACK"));
+        }
+
+        // WAIT UNSUBACK
+        let status = time::timeout(Duration::from_secs(15), rx)
+            .await
+            .map_err(|_| anyhow!("unsubscribe timeout"))?
+            .map_err(|_| anyhow!("unsuback waiter dropped"))??;
+
+        Ok(status)
+    }
+
+    /// Wait for a PUBACK (QoS 1 ack) and return (packet_id, reason_code u8).
+    pub async fn recv_puback_reason(&mut self, timeout: Duration) -> Option<(NonZeroU16, u8)> {
+        time::timeout(timeout, self.puback_rx.recv()).await.ok().flatten()
+    }
+
+    /// Wait for a PUBREC (QoS 2 ack) and return (packet_id, reason_code u8).
+    pub async fn recv_pubrec_reason(&mut self, timeout: Duration) -> Option<(NonZeroU16, u8)> {
+        time::timeout(timeout, self.pubrec_rx.recv()).await.ok().flatten()
     }
 
     /// Send a PINGREQ
@@ -570,6 +791,29 @@ impl MqttV5Client {
         let disc = rmqtt_codec::v5::Disconnect {
             reason_code: code,
             session_expiry_interval_secs: None,
+            server_reference: None,
+            reason_string: None,
+            user_properties: Vec::new(),
+        };
+
+        {
+            let mut writer = self.writer.lock().await;
+            let _ = writer.send_packet(&PacketV5::Disconnect(disc)).await;
+            writer.shutdown().await?;
+        }
+
+        Ok(())
+    }
+
+    /// Disconnect gracefully with a V5 session-expiry property, which
+    /// overrides the CONNECT-requested value for the ending session.
+    /// `None` omits the property (the session keeps the CONNECT value).
+    pub async fn disconnect_with_session_expiry(&self, expiry_secs: Option<u32>) -> Result<()> {
+        self.connected.store(false, Ordering::Relaxed);
+
+        let disc = rmqtt_codec::v5::Disconnect {
+            reason_code: rmqtt_codec::v5::DisconnectReasonCode::NormalDisconnection,
+            session_expiry_interval_secs: expiry_secs,
             server_reference: None,
             reason_string: None,
             user_properties: Vec::new(),

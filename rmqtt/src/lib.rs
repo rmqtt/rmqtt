@@ -57,6 +57,8 @@ pub mod context; // Shared execution context
 // Feature-gated Modules
 #[cfg(feature = "delayed")] // Delayed message publishing
 pub mod delayed;
+#[cfg(feature = "flapping")] // Connection-gate inspection endpoint
+pub mod flapping;
 #[cfg(feature = "grpc")] // gRPC API integration
 pub mod grpc;
 #[cfg(feature = "msgstore")] // Message storage subsystem

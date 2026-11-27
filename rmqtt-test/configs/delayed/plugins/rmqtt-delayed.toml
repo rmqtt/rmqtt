@@ -1,0 +1,7 @@
+##--------------------------------------------------------------------
+## rmqtt-delayed
+##--------------------------------------------------------------------
+## Built-in defaults are used (keys omitted):
+##   publish_max       = 100_000  (max pending delayed messages per node)
+##   publish_immediate = true     (forward immediately instead of dropping
+##                                 when publish_max is reached)

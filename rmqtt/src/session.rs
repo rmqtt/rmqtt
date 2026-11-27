@@ -87,7 +87,7 @@ use crate::codec::v5::RetainHandling;
 use crate::codec::{
     v3,
     v5::{
-        self, Auth, PublishAck2, PublishAck2Reason, PublishAckReason, SubscribeAckReason, ToReasonCode,
+        self, PublishAck2, PublishAck2Reason, PublishAckReason, SubscribeAckReason, ToReasonCode,
         UserProperties,
     },
 };
@@ -211,10 +211,6 @@ impl SessionState {
         }
         self.scx.connections.dec();
 
-        if let Err(e) = sink.close().await {
-            log::info!("{} close io error, {e}", self.id);
-        }
-
         let disconnect = self.disconnect().await.unwrap_or(None);
         let clean_session = self.clean_session(disconnect.as_ref()).await;
 
@@ -239,7 +235,7 @@ impl SessionState {
         );
 
         //Last will message
-        let will_delay_interval = if self.last_will_enable(flags, clean_session) {
+        let will_delay_interval = if self.last_will_enable(flags, clean_session, disconnect.as_ref()) {
             let will_delay_interval = self.will_delay_interval().await;
             if clean_session || will_delay_interval.is_none() {
                 if let Err(e) = self.process_last_will().await {
@@ -263,17 +259,47 @@ impl SessionState {
             Reason::ConnectRemoteClose
         };
 
-        if let Sink::V5(s) = &mut sink {
-            let d = if let Reason::ConnectDisconnect(Some(Disconnect::V5(d))) = &reason {
-                d.clone()
-            } else {
-                v5::Disconnect {
-                    reason_code: reason.to_reason_code(),
-                    reason_string: Some(reason.to_string().into()),
-                    ..Default::default()
-                }
+        // A Server-to-Client DISCONNECT announces that the *Server* is ending the
+        // connection -- [MQTT-3.1.4-3] for a session takeover, MQTT 5.0 section 4.13.1
+        // for the other errors. When the Client ended it instead, by sending its own
+        // DISCONNECT (`StateFlags::DisconnectReceived`) or by closing its transport
+        // (`Reason::ConnectRemoteClose`), there is nothing left for the Server to
+        // announce. `Reason::ConnectDisconnect` cannot be used to tell those two cases
+        // apart: the auth plugins reuse it to force a close from the server side
+        // (auth-http / auth-jwt token expiry), and only the flag separates that from the
+        // Client's own packet.
+        let client_ended = flags.contains(StateFlags::DisconnectReceived)
+            || match &reason {
+                Reason::ConnectRemoteClose => true,
+                Reason::Reasons(reasons) => matches!(reasons.first(), Some(Reason::ConnectRemoteClose)),
+                _ => false,
             };
-            let _ = s.send_disconnect(d).await;
+
+        if !client_ended {
+            if let Sink::V5(s) = &mut sink {
+                let d = if let Reason::ConnectDisconnect(Some(Disconnect::V5(d))) = &reason {
+                    d.clone()
+                } else {
+                    v5::Disconnect {
+                        reason_code: reason.to_reason_code(),
+                        reason_string: Some(reason.to_string().into()),
+                        ..Default::default()
+                    }
+                };
+                // The write half must still be open here. It used to be shut down before
+                // this point, which made `send_disconnect` fail on `poll_shutdown` every
+                // single time -- and the error was swallowed by a `let _ =`, so every
+                // Server-originated Reason Code (0x81/0x82/0x8D/0x8E/0x93/0x95) was dead
+                // and the Client could never tell "the Server hung up, and why" from "the
+                // network died".
+                if let Err(e) = s.send_disconnect(d).await {
+                    log::debug!("{} send disconnect error, {e}", self.id);
+                }
+            }
+        }
+
+        if let Err(e) = sink.close().await {
+            log::info!("{} close io error, {e}", self.id);
         }
 
         self.hook.client_disconnected(reason).await;
@@ -447,6 +473,35 @@ impl SessionState {
                             Message::Kick(sender, by_id, clean_start, is_admin) => {
                                 log::debug!("{:?} offline Kicked, send kick result, to: {:?}, clean_start: {}, is_admin: {}", self.id, by_id, clean_start, is_admin);
                                 if !sender.is_closed() {
+                                    // Drain any offline messages still queued behind this Kick
+                                    // into the deliver_queue BEFORE acking the kick: the kicker
+                                    // collects the session's offline messages via
+                                    // `to_offline_info` (which only drains `deliver_queue`)
+                                    // right after the ack, so messages published while this
+                                    // offline event loop was busy would otherwise be silently
+                                    // dropped on session transfer (reconnect while the broker
+                                    // is still draining a large offline backlog).
+                                    let mut drained = 0usize;
+                                    while let Ok(Message::Forward(from, p)) = self.rx.try_recv() {
+                                        // hook, offline_message — same as the main offline event
+                                        // loop so hook consumers (web-hook `offline_message`
+                                        // rule, sys-topic offline counters, audit plugins) do not
+                                        // miss the messages drained on kick.
+                                        self.hook.offline_message(from.clone(), &p).await;
+                                        if let Err((from, p)) = deliver_queue_tx.send((from, p)).await {
+                                            log::debug!("{:?} offline deliver_dropped, from: {:?}, {:?}", self.id, from, p);
+                                            self.scx
+                                                .extends
+                                                .hook_mgr()
+                                                .message_dropped(Some(self.id.clone()), from, p, Reason::MessageQueueFull)
+                                                .await;
+                                        } else {
+                                            drained += 1;
+                                        }
+                                    }
+                                    if drained > 0 {
+                                        log::info!("{:?} drained {drained} queued offline messages before kick", self.id);
+                                    }
                                     if let Err(e) = sender.send(()) {
                                         log::warn!("{:?} offline Kick send response error, to: {:?}, clean_start: {}, is_admin: {}, {:?}", self.id, by_id, clean_start, is_admin, e);
                                     }
@@ -535,7 +590,7 @@ impl SessionState {
             let clean_session = state.clean_session(disconnect.as_ref()).await;
 
             //Last will message
-            let will_delay_interval = if state.last_will_enable(flags, clean_session) {
+            let will_delay_interval = if state.last_will_enable(flags, clean_session, disconnect.as_ref()) {
                 let will_delay_interval = state.will_delay_interval().await;
                 if clean_session || will_delay_interval.is_none() {
                     if let Err(e) = state.process_last_will().await {
@@ -816,8 +871,13 @@ impl SessionState {
                 return Ok(());
             }
             Packet::V5(v5::Packet::Auth(_)) => {
-                sink.v5_mut().send_auth(Auth::default()).await?;
-                //@TODO Consider implementing Auth through hooks
+                // rmqtt does not support MQTT 5.0 enhanced authentication, so no
+                // authentication method can ever have been negotiated in the
+                // CONNACK. [MQTT-4.12.0] Receiving an AUTH packet in that state
+                // is a Protocol Error -> DISCONNECT 0x82 and close.
+                return Err(Reason::ProtocolError(ByteString::from_static(
+                    "received an AUTH packet but enhanced authentication is not supported",
+                )));
             }
             _ => {
                 return Err(format!("Received an unimplemented message, {pkt:?}").into());
@@ -834,11 +894,32 @@ impl SessionState {
         Ok(())
     }
 
+    /// Whether the stored Will Message is still due for publication when this
+    /// session ends in the given state. [MQTT-3.1.2-8/9]
+    ///
+    /// The Will is deleted in exactly two cases: the Server received a
+    /// DISCONNECT with Reason Code 0x00, or a new Network Connection for the
+    /// same Client Identifier took the session over.
+    ///
+    /// `disconnect` is the DISCONNECT recorded for this session. It must be
+    /// consulted on the `offline_restart` path too, where it is read back from
+    /// session storage: a session rebuilt after a broker restart must not
+    /// publish a Will that its last connection had already deleted.
     #[inline]
-    fn last_will_enable(&self, flags: StateFlags, clean_session: bool) -> bool {
+    fn last_will_enable(
+        &self,
+        flags: StateFlags,
+        clean_session: bool,
+        disconnect: Option<&Disconnect>,
+    ) -> bool {
         let session_present =
             flags.contains(StateFlags::Kicked) && !flags.contains(StateFlags::CleanStart) && !clean_session;
-        !(flags.contains(StateFlags::DisconnectReceived) || session_present)
+        // Only Reason Code 0x00 deletes the Will; 0x04 (Disconnect with Will
+        // Message) explicitly asks for it to be sent, and every other code
+        // leaves it due as well. MQTT 3.1.1 has no Reason Code, so every v3
+        // DISCONNECT is a normal disconnection.
+        let deleted_by_disconnect = disconnect.is_some_and(Disconnect::deletes_will);
+        !(deleted_by_disconnect || session_present)
     }
 
     #[inline]
@@ -855,6 +936,24 @@ impl SessionState {
                 //hook, message_publish
                 let p = self.hook.message_publish(from.clone(), &p).await.unwrap_or(p);
                 log::debug!("process_last_will, publish: {p:?}");
+
+                // A Will Message is a PUBLISH the broker sends on the client's behalf.
+                // It must pass the same ACL check as a PUBLISH the client sends itself,
+                // otherwise a client can use its Will to publish to a topic it was
+                // never allowed to write to. The client is already gone, so a denial
+                // only drops the message; there is nothing to disconnect.
+                //hook, message_publish_check_acl
+                let acl_result = self.hook.message_publish_check_acl(&p).await;
+                log::debug!("{:?} last will acl_result: {:?}", self.id, acl_result);
+                if !acl_result.is_allow() {
+                    #[cfg(feature = "metrics")]
+                    self.scx.metrics.client_publish_auth_error_inc();
+                    let reason = Reason::PublishResult(acl_result.pub_res());
+                    log::info!("{:?} last will dropped by acl, topic: {:?}", self.id, p.topic);
+                    //hook, Message dropped
+                    self.scx.extends.hook_mgr().message_dropped(None, from, p, reason).await;
+                    return Ok(());
+                }
 
                 let message_storage_available = {
                     #[cfg(feature = "msgstore")]
@@ -1019,7 +1118,7 @@ impl SessionState {
         let from = From::from_custom(self.id.clone());
 
         #[cfg(feature = "delayed")]
-        if self.listen_cfg().delayed_publish {
+        if self.scx.extends.delayed_sender().await.enable() {
             publish = self.scx.extends.delayed_sender().await.parse(publish)?;
         }
 
@@ -1111,6 +1210,13 @@ impl SessionState {
 
         let mut acks = Vec::new();
         for (topic_filter, qos) in topic_filters {
+            // Deliberate: parse errors here abort the whole SUBSCRIBE and drop the
+            // connection (via the caller's Err branch) instead of answering with a
+            // per-filter SUBACK Failure (0x80). Legacy v3.1.1 devices often ignore a
+            // refused SUBACK and hang forever; they only recover after reconnecting,
+            // so disconnecting forces them to re-subscribe. Do NOT align this with
+            // the v5 path (which reports per-filter TopicFilterInvalid) without
+            // considering those clients.
             let s = Subscribe::from_v3(&topic_filter, qos, shared_subscription, limit_subscription)?;
             match self.subscribe(s).await {
                 Ok(sub_ret) => {
@@ -1158,7 +1264,19 @@ impl SessionState {
         let mut status: Vec<SubscribeAckReason> = Vec::new();
 
         for (topic_filter, opts) in &subs.topic_filters {
-            let s = Subscribe::from_v5(topic_filter, opts, shared_subscription, limit_subscription, sub_id)?;
+            // Parse errors (e.g. malformed shared subscription filters) are per-filter
+            // failures and must be reported in the SUBACK (MQTT 5.0 section 3.8.4)
+            // instead of aborting the whole subscribe and dropping the connection.
+            let s =
+                match Subscribe::from_v5(topic_filter, opts, shared_subscription, limit_subscription, sub_id)
+                {
+                    Ok(s) => s,
+                    Err(e) => {
+                        log::warn!("{:?} Subscribe filter refused, {:?}, {:?}", self.id, topic_filter, e);
+                        status.push(SubscribeAckReason::TopicFilterInvalid);
+                        continue;
+                    }
+                };
             match self.subscribe(s).await {
                 Ok(sub_ret) => {
                     status.push(sub_ret.into_inner());
@@ -1524,12 +1642,30 @@ impl SessionState {
         let publish = self.hook.message_delivered(from.clone(), &publish).await.unwrap_or(publish);
 
         //send message
-        sink.publish(
-            publish.clone(),
-            expiry_check_res.message_expiry_interval(),
-            self.server_topic_aliases.as_ref(),
-        )
-        .await?; //@TODO ... at exception, send hook and or store message
+        let sent = sink
+            .publish(
+                publish.clone(),
+                expiry_check_res.message_expiry_interval(),
+                self.server_topic_aliases.as_ref(),
+            )
+            .await; //@TODO ... at exception, send hook and or store message
+        match sent? {
+            PublishOutcome::Sent => {}
+            PublishOutcome::DiscardedTooLarge => {
+                //[MQTT-3.1.2-25] the packet is too large to send, so the Server discards it
+                //without sending it and then behaves as if it had completed sending that
+                //Application Message: the session stays up and every message queued behind it is
+                //still delivered. Note that we return before `push_back` below, so the discarded
+                //message is deliberately *not* registered in the outbound inflight window —
+                //that is exactly what "as if it had completed sending" means.
+                self.scx
+                    .extends
+                    .hook_mgr()
+                    .message_dropped(Some(self.id.clone()), from, publish, Reason::MessageTooLarge)
+                    .await;
+                return Ok(());
+            }
+        }
 
         //cache messages to inflight window
         let moment_status = match publish.qos {
@@ -1561,20 +1697,13 @@ impl SessionState {
                 self.forward(iflt_msg.from, iflt_msg.publish).await;
             }
             MomentStatus::UnComplete => {
-                let expiry_check_res =
-                    self.hook.message_expiry_check(iflt_msg.from.clone(), &iflt_msg.publish).await;
-
-                if expiry_check_res.is_expiry() {
-                    log::warn!(
-                        "{:?} MQTT::PublishComplete is not received, from: {:?}, message: {:?}",
-                        self.id,
-                        iflt_msg.from,
-                        iflt_msg.publish
-                    );
-                    return Ok(());
-                }
-
-                //rerelease
+                // The exchange has already passed PUBREC, so the PUBLISH was definitely sent
+                // and onward delivery has started. [MQTT-4.3.3-7] then forbids the sender to
+                // apply Message Expiry at all, and [MQTT-3.3.2-5] only allows the copy to be
+                // deleted while delivery has *not* started. The owed PUBREL must therefore be
+                // re-sent with its original Packet Identifier ([MQTT-4.4.0-1]) however long the
+                // Session stayed down; an expiry check here would silently drop an in-progress
+                // QoS 2 exchange and strand the receiver's Packet Identifier forever.
                 self.tx.unbounded_send(Message::SendRerelease(iflt_msg))?;
             }
         }
@@ -1724,6 +1853,9 @@ impl SessionState {
         //delayed publish
         #[cfg(feature = "delayed")]
         if publish.delay_interval.is_some() {
+            // `Ok(None)` means the sender handled the message (scheduled, or
+            // refused and dropped -- the sender fires the `message_dropped`
+            // hook itself in that case); `Ok(Some(..))` means forward now.
             if let Some((f, p)) = scx
                 .extends
                 .delayed_sender()
@@ -1731,14 +1863,7 @@ impl SessionState {
                 .delay_publish(from, publish, message_storage_available, message_expiry_interval)
                 .await?
             {
-                if scx.mqtt_delayed_publish_immediate {
-                    Self::inner_forwards(scx, f, p, message_storage_available, message_expiry_interval)
-                        .await?;
-                } else {
-                    //hook, Message dropped
-                    scx.extends.hook_mgr().message_dropped(None, f, p, Reason::DelayedPublishRefused).await;
-                    return Ok(());
-                }
+                Self::inner_forwards(scx, f, p, message_storage_available, message_expiry_interval).await?;
             }
             return Ok(());
         }
@@ -1985,7 +2110,16 @@ async fn _send_retain_messages(
         retain.publish.qos = retain.publish.qos.less_value(qos);
         retain.publish.topic = topic;
         retain.publish.packet_id = None;
-        retain.publish.create_time = Some(timestamp_millis());
+        // `create_time` is deliberately left at the value stamped when the server first
+        // received the PUBLISH, i.e. the start of the message's lifetime. It is the only
+        // clock available here: the storage backend keeps the message verbatim and, with
+        // the default `retained_message_ttl = "0m"`, holds no expiry deadline of its own.
+        // Resetting it to now would make `message_expiry_check` compute
+        // `remaining = now - create_time == 0` and hand the subscriber the original
+        // Message Expiry Interval, whereas [MQTT-3.3.2-6] requires the value *minus* the
+        // time the message has already waited in the server. Leaving it untouched also
+        // lets a message whose interval elapsed before this subscription be dropped with
+        // MessageExpiration, as [MQTT-3.3.2-5] expects, instead of being resurrected.
 
         log::debug!("{:?} retain.publish: {:?}", id, retain.publish);
 
@@ -2605,7 +2739,7 @@ impl SessionLike for DefaultSession {
         Ok(())
     }
     async fn disconnected_reason_take(&self) -> Result<Reason> {
-        Ok(Reason::Reasons(self.disconnect_info.write().await.reasons.drain(..).collect()))
+        Ok(Reason::Reasons(std::mem::take(&mut self.disconnect_info.write().await.reasons)))
     }
     async fn disconnect(&self) -> Result<Option<Disconnect>> {
         Ok(self.disconnect_info.read().await.mqtt_disconnect.clone())

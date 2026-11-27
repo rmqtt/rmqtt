@@ -1,0 +1,12 @@
+##--------------------------------------------------------------------
+## rmqtt-http-api
+##--------------------------------------------------------------------
+## Minimal config for the delayed suite: only the unload/flush test talks
+## to the API. No history `storage` section — persistence is disabled.
+
+## Max Row Limit
+max_row_limit = 10_000
+## HTTP Listener address
+http_laddr = "0.0.0.0:6060"
+## Indicates whether to print HTTP request logs
+http_request_log = false

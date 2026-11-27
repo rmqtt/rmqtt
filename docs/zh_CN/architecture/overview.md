@@ -238,9 +238,9 @@ pub trait Handler: Send + Sync {
 | 钩子类型 | 触发时机 | 处理器返回 |
 |----------|----------|-----------|
 | `BeforeStartup` | Broker 初始化 | Continue |
-| `ClientConnect` | 收到 CONNECT | `(bool, Option<ConnAckReason>)` |
+| `ClientConnect` | 收到 CONNECT | `(bool, Option<ConnectRefuse>)` |
 | `ClientAuthenticate` | 发送 CONNACK 前 | `(bool, Option<ConnAckReason>)` |
-| `ClientConnack` | CONNACK 已发送 | Continue |
+| `ClientConnack` | CONNACK 已发送（接受或拒绝） | Continue |
 | `ClientConnected` | 会话已建立 | Continue |
 | `ClientDisconnected` | 会话已结束 | Continue |
 | `ClientSubscribe` | 收到 SUBSCRIBE | Continue |
@@ -264,7 +264,7 @@ pub trait Handler: Send + Sync {
 
 ### 钩子注册优先级
 
-处理器可以注册时指定优先级。数值越小越先执行。`counter` 插件以 `Priority::MAX` 注册，确保它在最后执行。
+处理器可以注册时指定优先级。数值越大越先执行（数值最大的 `Priority` 最先派发）。`counter` 插件以 `Priority::MAX` 注册，因此它在每条 hook 链中最先执行。
 
 ---
 

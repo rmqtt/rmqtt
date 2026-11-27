@@ -128,6 +128,7 @@
     "messages_publish": "الرسائل المنشورة",
     "messages_delivered": "الرسائل المسلمة",
     "messages_discarded": "الرسائل المهملة",
+    "offline_saves_dropped": "Offline Persistence Drops",
     "subscriptions_count": "الاشتراكات",
     "shared_subscriptions_count": "الاشتراكات المشتركة",
     "status_title": "Status",
@@ -154,6 +155,7 @@
     "features_delayed": "الرسائل المؤجلة",
     "features_shared_subscription": "الاشتراكات المشتركة",
     "features_auto_subscription": "الاشتراك التلقائي",
+    "features_flapping": "الحماية من التذبذب",
     "features_tab_title": "دعم الميزات"
   },
   "gauge": {
@@ -302,7 +304,8 @@
     "dashboard": "لوحة التحكم",
     "confirm": "تأكيد",
     "cancel": "إلغاء",
-    "confirm_title": "تأكيد"
+    "confirm_title": "تأكيد",
+    "copy": "نسخ"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +355,43 @@
     "delete": "حذف",
     "delete_confirm": "هل تريد حذف الرسالة المحفوظة للموضوع {topic}؟",
     "delete_fail": "فشل حذف الرسالة: {msg}"
+  },
+  "delayed": {
+    "not_enabled": "النشر المؤجل غير مُفعّل (حمّل الإضافة rmqtt-delayed)",
+    "topic_filter_placeholder": "مرشح الموضوع (مثل sensor/#، فارغ = الكل)",
+    "topic": "الموضوع",
+    "delay_interval": "فترة التأخير",
+    "fire_time": "وقت الإطلاق",
+    "remaining": "الوقت المتبقي",
+    "client_id": "معرّف العميل",
+    "username": "اسم المستخدم",
+    "payload_size": "حجم الحمولة",
+    "node": "العقدة",
+    "payload": "محتوى الحمولة",
+    "not_found": "تم إرسال الرسالة أو لم تعد موجودة",
+    "no_results": "لا توجد رسائل مؤجلة",
+    "view_payload": "عرض الحمولة"
+  },
+  "flapping": {
+    "not_enabled": "حماية التذبذب غير مفعّلة (حمّل إضافة rmqtt-flapping أو اضبط enable = true)",
+    "node_local": "الحظر محلي على العقدة؛ تعرض هذه القائمة العقدة المستجيبة فقط",
+    "banned_count": "الحظر الساري",
+    "dimension": "البُعد",
+    "dimension_all": "كل الأبعاد",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "اسم المستخدم",
+    "dimension_peerhost": "عنوان المصدر",
+    "key": "المفتاح",
+    "key_placeholder": "المفتاح (مطابقة تامة، مثل ClientID / اسم المستخدم / IP)",
+    "count": "المحاولات",
+    "banned_at": "وقت الحظر",
+    "banned_until": "ينتهي الحظر في",
+    "remaining": "المتبقي",
+    "last_clientid": "آخر ClientID",
+    "last_ipaddress": "آخر عنوان مصدر",
+    "unban": "رفع الحظر",
+    "unban_confirm": "رفع الحظر عن {dimension} \"{key}\"؟",
+    "unban_fail": "فشل رفع الحظر: {msg}",
+    "no_results": "لا يوجد حظر ساري"
   }
 }

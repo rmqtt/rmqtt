@@ -72,6 +72,11 @@ expiry_interval = "5m"
 [bridges.properties]
 "message.timeout.ms" = "5000"
 #"enable.auto.commit" = "false"
+# TLS / SASL (Linux builds), see README
+#"security.protocol" = "ssl"
+#"ssl.ca.location" = "/etc/rmqtt/kafka/ca.pem"
+#"ssl.certificate.location" = "/etc/rmqtt/kafka/service.cert"
+#"ssl.key.location" = "/etc/rmqtt/kafka/service.key"
 
 [[bridges.entries]]
 # Kafka consume topic

@@ -20,23 +20,60 @@
 //!
 //! # Setup
 //!
-//! Requires two rmqttd nodes (see `rmqtt-test/configs/pubrel-collision-cluster/`):
+//! Two rmqttd nodes (`rmqtt-test/configs/pubrel-collision-cluster/`):
 //! - node 1: 127.0.0.1:1884 (MQTT), 5364 (gRPC)
 //! - node 2: 127.0.0.1:1885 (MQTT), 5365 (gRPC)
 //!
-//! Run with the harness in `--no-broker` mode pointing at node 1:
-//!   mqtt_harness --no-broker --addr 127.0.0.1:1884 --suites functional_v5
+//! The test owns those two processes: a node whose address already accepts
+//! TCP connections is **reused** (the original manual two-terminal flow),
+//! a missing one is **spawned** from its config and killed on exit. Either
+//! way the addresses above are what the reproduction talks to — never
+//! `ctx.config.broker_addr`.
+//!
+//! # Run
+//!
+//! ```
+//! ./target/debug/mqtt_harness --no-broker --addr 127.0.0.1:1884 \
+//!   --workspace . --suites functional_v5_cluster --workers 1
+//! ```
+//!
+//! `--no-broker` is mandatory: a harness-managed broker binds the default
+//! listener ports that node 1 also binds, and it would silently stand in for
+//! node 1 while node 2 stays missing. Running without it reports SKIPPED
+//! (with the command above) instead of failing on a bare `os error 10061`.
+//!
+//! Per-node broker logs: `target/pubrel-collision-cluster-node{1,2}.log`.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use crate::broker::healthcheck::health_check_sync;
 use crate::framework::context::TestContext;
 use crate::framework::testcase::{TestCase, TestResult};
 use crate::mqtt::common::QoS;
 use crate::mqtt::v5::MqttV5Client;
 
-/// Node 2 MQTT address (hard-coded for the cluster reproduction setup).
+use super::cluster_session_restart::{rmqttd_binary, ClusterNode};
+
+/// Node 1 MQTT address (the node the harness must be pointed at).
+const NODE1_ADDR: &str = "127.0.0.1:1884";
+
+/// Node 2 MQTT address (the node the session migrates to).
 const NODE2_ADDR: &str = "127.0.0.1:1885";
+
+/// Per-node configs (relative to the repository root).
+const NODE1_CONFIG: &str = "rmqtt-test/configs/pubrel-collision-cluster/node1/rmqtt.toml";
+const NODE2_CONFIG: &str = "rmqtt-test/configs/pubrel-collision-cluster/node2/rmqtt.toml";
+
+/// Suite tag used for the reported verdict (`functional_v5_cluster`).
+const SUITE: &str = "functional_v5_cluster";
+
+/// How long a self-spawned node may take to accept TCP connections.
+const NODE_START_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Connect timeout for the reproduction clients.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Number of incomplete QoS 2 exchanges left in the session before resume.
 /// Larger values lengthen the reforward loop (each entry awaits the expiry
@@ -55,6 +92,61 @@ const ROUNDS: usize = 3;
 /// Cluster reproduction: duplicate PUBREL on cross-node session resume.
 pub struct Qos2PubrelResumeCollisionClusterTest;
 
+/// Bring up the two-node cluster, reusing nodes that are already listening.
+///
+/// Returns the owned nodes (a self-spawned one is killed on drop) and whether
+/// anything had to be started. `Err` carries a diagnosis with the node log
+/// path; the caller turns it into a failed verdict. An already-running node is
+/// never killed, so the manual two-terminal flow still works.
+fn acquire_cluster() -> Result<(Vec<ClusterNode>, bool), String> {
+    let binary = rmqttd_binary();
+    if !binary.exists() {
+        return Err(format!("rmqttd binary not found at {binary:?}; build it first (cargo build -p rmqttd)"));
+    }
+
+    // Logs live next to the other self-managed cluster logs, i.e. in target/.
+    let log_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("target");
+    let mut nodes = vec![
+        ClusterNode::new(
+            PathBuf::from(NODE1_CONFIG),
+            NODE1_ADDR,
+            log_dir.join("pubrel-collision-cluster-node1.log"),
+        ),
+        ClusterNode::new(
+            PathBuf::from(NODE2_CONFIG),
+            NODE2_ADDR,
+            log_dir.join("pubrel-collision-cluster-node2.log"),
+        ),
+    ];
+
+    let mut spawned = false;
+    for (i, node) in nodes.iter_mut().enumerate() {
+        if health_check_sync(&node.addr, Duration::from_secs(2)) {
+            tracing::info!(
+                "pubrel-collision-cluster: reusing the externally started node already listening on {}",
+                node.addr
+            );
+            continue;
+        }
+        if let Err(e) = node.spawn(&binary) {
+            return Err(format!("failed to spawn node {} ({}): {e}", i + 1, node.addr));
+        }
+        // `wait_healthy` prints the node's log tail when it exits early or
+        // never opens the port, so the reason is visible without digging.
+        if !node.wait_healthy(NODE_START_TIMEOUT) {
+            return Err(format!(
+                "node {} ({}) did not become healthy within {NODE_START_TIMEOUT:?} \
+                 (log: target/pubrel-collision-cluster-node{}.log)",
+                i + 1,
+                node.addr,
+                i + 1
+            ));
+        }
+        spawned = true;
+    }
+    Ok((nodes, spawned))
+}
+
 impl TestCase for Qos2PubrelResumeCollisionClusterTest {
     fn name(&self) -> &str {
         "qos2_pubrel_resume_collision_cluster"
@@ -62,6 +154,34 @@ impl TestCase for Qos2PubrelResumeCollisionClusterTest {
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
+
+        // The cluster is owned by this test (or reused), never by the harness:
+        // a harness-managed broker binds the same default listeners as node 1
+        // and would silently take node 1's place in `--addr`, leaving node 2
+        // missing — the failure mode that reports a bare `os error 10061`.
+        if ctx.has_broker() {
+            return TestResult::skipped(
+                self.name(),
+                SUITE,
+                start.elapsed(),
+                "requires --no-broker: the harness-managed broker binds the same default \
+                 listeners as node 1 (1883/11883/8883/8080/8443/9443) and would stand in for \
+                 it while node 2 stays down. Run: mqtt_harness --no-broker --addr \
+                 127.0.0.1:1884 --workspace . --suites functional_v5_cluster --workers 1",
+            );
+        }
+
+        // Keep the handle alive for the whole test: self-spawned nodes are
+        // killed (and their ports released) when it is dropped.
+        let (_nodes, spawned) = match acquire_cluster() {
+            Ok(v) => v,
+            Err(e) => return TestResult::failed(self.name(), SUITE, start.elapsed(), e),
+        };
+        tracing::info!(
+            "pubrel-collision-cluster: {} ({NODE1_ADDR} <-> {NODE2_ADDR})",
+            if spawned { "started self-managed nodes" } else { "using externally started nodes" }
+        );
+
         let rt = tokio::runtime::Runtime::new().unwrap();
 
         let result = rt.block_on(async {
@@ -75,9 +195,9 @@ impl TestCase for Qos2PubrelResumeCollisionClusterTest {
 
                 // ---- Phase 1: subscriber session on NODE 1 with incomplete QoS 2 exchanges
                 let mut subscriber = MqttV5Client::connect_with_options(
-                    &ctx.config.broker_addr, // node 1
+                    NODE1_ADDR,
                     &sub_cid,
-                    ctx.config.connect_timeout,
+                    CONNECT_TIMEOUT,
                     true, // clean_start
                     60,
                     None,
@@ -94,7 +214,7 @@ impl TestCase for Qos2PubrelResumeCollisionClusterTest {
                 // Cross-node forward sanity check: publish on node 2, receive on node 1.
                 // Use QoS 0 so the probe does NOT consume a packet id (the transferred
                 // exchanges must start at id 1 for the collision to be observable).
-                let probe = MqttV5Client::connect(NODE2_ADDR, &pub_cid, ctx.config.connect_timeout).await?;
+                let probe = MqttV5Client::connect(NODE2_ADDR, &pub_cid, CONNECT_TIMEOUT).await?;
                 probe
                     .publish_with_properties(
                         &topic,
@@ -109,16 +229,17 @@ impl TestCase for Qos2PubrelResumeCollisionClusterTest {
                         None,
                     )
                     .await?;
-                subscriber
-                    .recv_message_timeout(Duration::from_secs(5))
-                    .await
-                    .ok_or_else(|| anyhow::anyhow!("round {round}: cluster forward probe not received"))?;
+                subscriber.recv_message_timeout(Duration::from_secs(5)).await.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "round {round}: cross-node forward probe (publish on {NODE2_ADDR}) never \
+                         reached the subscriber on {NODE1_ADDR} — the two addresses are not a \
+                         converged pubrel-collision cluster"
+                    )
+                })?;
                 let _ = probe.disconnect().await;
 
                 // Now leave N incomplete QoS 2 exchanges (publisher on node 1).
-                let publisher =
-                    MqttV5Client::connect(&ctx.config.broker_addr, &pub_cid, ctx.config.connect_timeout)
-                        .await?;
+                let publisher = MqttV5Client::connect(NODE1_ADDR, &pub_cid, CONNECT_TIMEOUT).await?;
                 let mut expected_rel_ids = Vec::new();
                 for i in 0..UNCOMPLETE_COUNT {
                     let payload = format!("inflight-{round}-{i}");
@@ -159,7 +280,7 @@ impl TestCase for Qos2PubrelResumeCollisionClusterTest {
                 // ---- Phase 2: publish stored messages on NODE 2 while the subscriber
                 // is offline. Stored on node 2, delivered on node 1 (offline), NOT
                 // mark_forwarded on node 2 (no local recipients).
-                let storer = MqttV5Client::connect(NODE2_ADDR, &pub_cid, ctx.config.connect_timeout).await?;
+                let storer = MqttV5Client::connect(NODE2_ADDR, &pub_cid, CONNECT_TIMEOUT).await?;
                 for i in 0..STORED_COUNT {
                     storer
                         .publish_with_properties(
@@ -185,7 +306,7 @@ impl TestCase for Qos2PubrelResumeCollisionClusterTest {
                 let mut resumed = MqttV5Client::connect_with_options(
                     NODE2_ADDR,
                     &sub_cid,
-                    ctx.config.connect_timeout,
+                    CONNECT_TIMEOUT,
                     false, // clean_start = 0
                     60,
                     None,
@@ -235,8 +356,8 @@ impl TestCase for Qos2PubrelResumeCollisionClusterTest {
         });
 
         match result {
-            Ok(()) => TestResult::passed(self.name(), "functional_v5", start.elapsed()),
-            Err(e) => TestResult::failed(self.name(), "functional_v5", start.elapsed(), e.to_string()),
+            Ok(()) => TestResult::passed(self.name(), SUITE, start.elapsed()),
+            Err(e) => TestResult::failed(self.name(), SUITE, start.elapsed(), e.to_string()),
         }
     }
 

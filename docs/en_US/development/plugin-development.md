@@ -293,9 +293,9 @@ All available hook types:
 | Hook Type | Trigger Condition | Handler Returns |
 |-----------|-----------------|-----------------|
 | `BeforeStartup` | Broker initialization | — |
-| `ClientConnect` | CONNECT received | `(bool, Option<ConnAckReason>)` |
+| `ClientConnect` | CONNECT received | `(bool, Option<ConnectRefuse>)` |
 | `ClientAuthenticate` | Before CONNACK | `(bool, Option<ConnAckReason>)` |
-| `ClientConnack` | CONNACK sent | — |
+| `ClientConnack` | CONNACK sent, accepted or refused | — |
 | `ClientConnected` | Session established | — |
 | `ClientDisconnected` | Session ended | — |
 | `ClientSubscribe` | SUBSCRIBE received | — |
@@ -316,11 +316,11 @@ All available hook types:
 ### Handler Priority
 
 ```rust
-// Register with specific priority (lower = earlier execution)
+// Register with specific priority (higher = earlier execution)
 register.add_priority(Type::MessagePublish, handler, 100).await
 ```
 
-The `counter` plugin uses `Priority::MAX` to ensure it runs last.
+The `counter` plugin uses `Priority::MAX`, so it runs first in each hook chain.
 
 ---
 

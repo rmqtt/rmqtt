@@ -407,23 +407,11 @@ impl Plugins {
 /// MQTT protocol-level configuration settings.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Mqtt {
-    #[serde(default = "Mqtt::delayed_publish_max_default")]
-    pub delayed_publish_max: usize,
-    #[serde(default = "Mqtt::delayed_publish_immediate_default")]
-    pub delayed_publish_immediate: bool,
     #[serde(default = "Mqtt::max_sessions_default")]
     pub max_sessions: isize,
 }
 
 impl Mqtt {
-    fn delayed_publish_max_default() -> usize {
-        100_000
-    }
-
-    fn delayed_publish_immediate_default() -> bool {
-        true
-    }
-
     fn max_sessions_default() -> isize {
         0
     }

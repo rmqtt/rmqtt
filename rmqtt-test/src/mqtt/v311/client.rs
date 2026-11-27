@@ -52,6 +52,8 @@ pub struct IncomingMessage {
     pub qos: QoSTest,
     pub retain: bool,
     pub dup: bool,
+    /// Packet identifier for QoS 1/2 deliveries, `None` for QoS 0.
+    pub packet_id: Option<u16>,
 }
 
 /// Subscribe result
@@ -59,6 +61,23 @@ pub struct IncomingMessage {
 pub struct SubscribeAck {
     pub packet_id: NonZeroU16,
     pub status: Vec<SubscribeReturnCode>,
+}
+
+/// Which acknowledgement a `publish()` call is currently waiting for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum AckPhase {
+    /// QoS 1: waiting for PUBACK
+    Ack,
+    /// QoS 2 step 1: waiting for PUBREC
+    Rec,
+    /// QoS 2 step 2: waiting for PUBCOMP
+    Comp,
+}
+
+/// A registered publish-ack waiter for one packet id.
+struct WaiterEntry {
+    phase: AckPhase,
+    tx: oneshot::Sender<()>,
 }
 
 /// MQTT v3.1.1 Client - full QoS 0/1/2
@@ -73,9 +92,23 @@ pub struct MqttV311Client {
     /// Ack waiters for SUBACK
     suback_waiters: Arc<Mutex<HashMap<u16, oneshot::Sender<Result<SubscribeAck>>>>>,
 
+    /// Waiters for QoS 1/2 publish acknowledgements (PUBACK / PUBREC /
+    /// PUBCOMP), keyed by packet id. Only one phase per packet id at a time.
+    ack_waiters: Arc<Mutex<HashMap<u16, WaiterEntry>>>,
+
     /// Whether to automatically answer incoming PUBREL with PUBCOMP (QoS 2 part 2).
     /// Disabling allows tests to leave a QoS 2 exchange incomplete.
     auto_pubcomp: Arc<AtomicBool>,
+
+    /// Whether to automatically answer incoming QoS 1 PUBLISH with PUBACK.
+    /// Disabling allows tests to leave a QoS 1 exchange incomplete (the broker
+    /// then owes a redelivery with DUP=1 on session resume, MQTT-4.4.0-1).
+    auto_puback: Arc<AtomicBool>,
+
+    /// Whether to automatically answer incoming QoS 2 PUBLISH with PUBREC.
+    /// Disabling allows tests to leave the broker->client QoS 2 exchange
+    /// incomplete at the PUBREC stage (MQTT-4.3.3).
+    auto_pubrec: Arc<AtomicBool>,
 
     /// Incoming PUBREL packet id receiver (broker -> client, QoS 2 part 2)
     pubrel_rx: mpsc::UnboundedReceiver<NonZeroU16>,
@@ -108,7 +141,10 @@ impl MqttV311Client {
         let (message_tx, message_rx) = mpsc::unbounded_channel();
         let suback_waiters: Arc<Mutex<HashMap<u16, oneshot::Sender<Result<SubscribeAck>>>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let ack_waiters: Arc<Mutex<HashMap<u16, WaiterEntry>>> = Arc::new(Mutex::new(HashMap::new()));
         let auto_pubcomp = Arc::new(AtomicBool::new(true));
+        let auto_puback = Arc::new(AtomicBool::new(true));
+        let auto_pubrec = Arc::new(AtomicBool::new(true));
         let (pubrel_tx, pubrel_rx) = mpsc::unbounded_channel();
 
         //
@@ -155,7 +191,10 @@ impl MqttV311Client {
             let writer = writer.clone();
             let connected = connected.clone();
             let suback_waiters = suback_waiters.clone();
+            let ack_waiters = ack_waiters.clone();
             let auto_pubcomp = auto_pubcomp.clone();
+            let auto_puback = auto_puback.clone();
+            let auto_pubrec = auto_pubrec.clone();
             let pubrel_tx = pubrel_tx.clone();
 
             tokio::spawn(async move {
@@ -165,6 +204,10 @@ impl MqttV311Client {
                         Err(err) => {
                             eprintln!("mqtt read error: {:?}", err);
                             connected.store(false, Ordering::Relaxed);
+                            // Wake any publish() waiting for an ack: their
+                            // oneshot senders are dropped, so the awaits get
+                            // a cancellation error.
+                            ack_waiters.lock().await.clear();
                             break;
                         }
                     };
@@ -181,16 +224,17 @@ impl MqttV311Client {
                                 qos,
                                 retain: pub_msg.retain,
                                 dup: pub_msg.dup,
+                                packet_id: packet_id.map(|p| p.get()),
                             };
                             let _ = message_tx.send(msg);
 
                             // Send protocol acknowledgment
                             if let Some(pkt_id) = packet_id {
-                                if qos == QoSTest::AtLeastOnce {
+                                if qos == QoSTest::AtLeastOnce && auto_puback.load(Ordering::Relaxed) {
                                     // QoS 1: send PUBACK
                                     let ack = PacketV3::PublishAck { packet_id: pkt_id };
                                     let _ = writer.lock().await.send_packet(&ack).await;
-                                } else if qos == QoSTest::ExactlyOnce {
+                                } else if qos == QoSTest::ExactlyOnce && auto_pubrec.load(Ordering::Relaxed) {
                                     // QoS 2: send PUBREC
                                     let ack = PacketV3::PublishReceived { packet_id: pkt_id };
                                     let _ = writer.lock().await.send_packet(&ack).await;
@@ -218,17 +262,29 @@ impl MqttV311Client {
 
                         // PUBACK from broker (QoS 1 publish ack)
                         PacketV3::PublishAck { packet_id, .. } => {
-                            eprintln!("PUBACK received for packet_id: {}", packet_id);
+                            if let Some(w) = ack_waiters.lock().await.remove(&packet_id.get()) {
+                                if w.phase == AckPhase::Ack {
+                                    let _ = w.tx.send(());
+                                }
+                            }
                         }
 
                         // PUBREC from broker (QoS 2 publish received)
                         PacketV3::PublishReceived { packet_id, .. } => {
-                            eprintln!("PUBREC received for packet_id: {}", packet_id);
+                            if let Some(w) = ack_waiters.lock().await.remove(&packet_id.get()) {
+                                if w.phase == AckPhase::Rec {
+                                    let _ = w.tx.send(());
+                                }
+                            }
                         }
 
                         // PUBCOMP from broker (QoS 2 publish complete)
                         PacketV3::PublishComplete { packet_id } => {
-                            eprintln!("PUBCOMP received for packet_id: {}", packet_id);
+                            if let Some(w) = ack_waiters.lock().await.remove(&packet_id.get()) {
+                                if w.phase == AckPhase::Comp {
+                                    let _ = w.tx.send(());
+                                }
+                            }
                         }
 
                         // PINGRESP
@@ -239,6 +295,7 @@ impl MqttV311Client {
                         // DISCONNECT
                         PacketV3::Disconnect => {
                             eprintln!("Received DISCONNECT from broker");
+                            ack_waiters.lock().await.clear();
                             break;
                         }
 
@@ -257,7 +314,10 @@ impl MqttV311Client {
             packet_id_counter: PacketIdCounter::new(),
             message_rx,
             suback_waiters,
+            ack_waiters,
             auto_pubcomp,
+            auto_puback,
+            auto_pubrec,
             pubrel_rx,
             connack,
         })
@@ -273,7 +333,16 @@ impl MqttV311Client {
         self.connected.load(Ordering::Relaxed)
     }
 
-    /// Publish a message with QoS and retain flag
+    /// Publish a message with QoS and retain flag.
+    ///
+    /// Performs the full protocol acknowledgement exchange:
+    /// - QoS 0: fire-and-forget
+    /// - QoS 1: waits for the broker's PUBACK
+    /// - QoS 2: waits for PUBREC, sends PUBREL, then waits for PUBCOMP
+    ///
+    /// (Previously this was fire-and-forget for all QoS levels, which left the
+    /// broker's QoS 2 state machine stuck in WAIT_PUBREC and exhausted
+    /// `max_inflight` under sustained load.)
     pub async fn publish(&self, topic: &str, payload: &[u8], qos: QoSTest, retain: bool) -> Result<()> {
         let packet_id = if qos != QoSTest::AtMostOnce {
             Some(
@@ -294,9 +363,51 @@ impl MqttV311Client {
             properties: None,
         };
 
-        self.writer.lock().await.send_packet(&PacketV3::Publish(Box::new(publish))).await?;
+        match qos {
+            QoSTest::AtMostOnce => {
+                self.writer.lock().await.send_packet(&PacketV3::Publish(Box::new(publish))).await?;
+                Ok(())
+            }
+            QoSTest::AtLeastOnce => {
+                let pid = packet_id.ok_or_else(|| anyhow!("QoS 1 publish without packet id"))?;
+                // Register before sending so a fast PUBACK cannot be missed.
+                let rx = self.register_ack(pid, AckPhase::Ack).await;
+                self.writer.lock().await.send_packet(&PacketV3::Publish(Box::new(publish))).await?;
+                self.wait_ack(pid, rx, "PUBACK").await
+            }
+            QoSTest::ExactlyOnce => {
+                let pid = packet_id.ok_or_else(|| anyhow!("QoS 2 publish without packet id"))?;
+                let rx = self.register_ack(pid, AckPhase::Rec).await;
+                self.writer.lock().await.send_packet(&PacketV3::Publish(Box::new(publish))).await?;
+                self.wait_ack(pid, rx, "PUBREC").await?;
+                let rx = self.register_ack(pid, AckPhase::Comp).await;
+                self.writer.lock().await.send_packet(&PacketV3::PublishRelease { packet_id: pid }).await?;
+                self.wait_ack(pid, rx, "PUBCOMP").await
+            }
+        }
+    }
 
-        Ok(())
+    /// Register a waiter for the given ack phase, keyed by packet id.
+    async fn register_ack(&self, packet_id: NonZeroU16, phase: AckPhase) -> oneshot::Receiver<()> {
+        let (tx, rx) = oneshot::channel();
+        self.ack_waiters.lock().await.insert(packet_id.get(), WaiterEntry { phase, tx });
+        rx
+    }
+
+    /// Wait for the registered ack (with a timeout) and clean up the waiter.
+    async fn wait_ack(
+        &self,
+        packet_id: NonZeroU16,
+        rx: oneshot::Receiver<()>,
+        label: &'static str,
+    ) -> Result<()> {
+        let result = tokio::time::timeout(Duration::from_secs(10), rx).await;
+        self.ack_waiters.lock().await.remove(&packet_id.get());
+        match result {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(_)) => Err(anyhow!("{label} wait canceled (connection closed) for packet {packet_id}")),
+            Err(_) => Err(anyhow!("{label} timeout for packet {packet_id}")),
+        }
     }
 
     /// Publish a message with an explicit packet id and DUP flag.
@@ -339,6 +450,26 @@ impl MqttV311Client {
     /// keeps owing a PUBCOMP), e.g. to verify MQTT-4.4.0-1 PUBREL resend on resume.
     pub fn set_auto_pubcomp(&self, enabled: bool) {
         self.auto_pubcomp.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Enable/disable the automatic PUBACK sent in reply to an incoming
+    /// QoS 1 PUBLISH.
+    ///
+    /// Disabling allows tests to leave a QoS 1 exchange incomplete (the broker
+    /// keeps owing a redelivery), e.g. to verify MQTT-4.4.0-1 PUBLISH resend
+    /// with DUP=1 and the original packet identifier on session resume.
+    pub fn set_auto_puback(&self, enabled: bool) {
+        self.auto_puback.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Enable/disable the automatic PUBREC sent in reply to an incoming
+    /// QoS 2 PUBLISH.
+    ///
+    /// Disabling allows tests to leave the broker->client QoS 2 exchange
+    /// incomplete at the PUBREC stage, e.g. to verify the broker retransmits
+    /// the PUBLISH with DUP=1 (MQTT-4.3.3).
+    pub fn set_auto_pubrec(&self, enabled: bool) {
+        self.auto_pubrec.store(enabled, Ordering::Relaxed);
     }
 
     /// Wait for an incoming PUBREL packet id (broker -> client, QoS 2 part 2)

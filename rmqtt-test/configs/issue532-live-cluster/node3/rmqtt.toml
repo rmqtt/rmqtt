@@ -1,0 +1,123 @@
+##--------------------------------------------------------------------
+## rmqttd node 3 — issue #532 "100K live sessions" fixture (cluster-broadcast)
+##
+## Same fixture as node 1 (`node1/rmqtt.toml` carries the full rationale: why two
+## MQTT listeners per node, why the handshake pool stays at two workers, and why
+## `mqueue_rate_limit` is raised). Only the identity and the ports differ:
+##   node 3 — MQTT 1924/1925, gRPC 5392.
+##--------------------------------------------------------------------
+node.id = 3
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+# Off: a CONNECT must never be refused with "the system is currently
+# overloaded" — the run has to fail for the reason under test, or not at all.
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## RPC
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5392"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Log (compose captures stdout/stderr; `docker compose logs node1`)
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "."
+log.file = "rmqtt_issue532_live_3.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+# Shared by all three nodes: `node_grpc_addrs` carries the whole cluster and
+# every plugin reads the same values (a node skips its own entry).
+plugins.dir = "./rmqtt-test/configs/issue532-live-cluster/plugins"
+plugins.default_startups = [
+    "rmqtt-cluster-broadcast",
+    "rmqtt-sys-topic",
+]
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter", "rmqtt-http-api"]
+
+##--------------------------------------------------------------------
+## MQTT listeners — primary (1920) and spill (1921)
+##--------------------------------------------------------------------
+listener.tcp.external.enable = true
+listener.tcp.external.addr = "127.0.0.1:1924"
+listener.tcp.external.workers = 8
+listener.tcp.external.max_handshaking_limit = 2
+# Well above the ~17 k sessions this listener carries, so the connection cap can
+# never be the reason anything is refused.
+listener.tcp.external.max_connections = 120_000
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1m"
+# Deep backlog: the ramp delivers ~250 conn/s to this node flat out.
+listener.tcp.external.backlog = 4096
+listener.tcp.external.allow_anonymous = true
+listener.tcp.external.min_keepalive = 0
+listener.tcp.external.keepalive_backoff = 0.75
+listener.tcp.external.max_inflight = 16
+listener.tcp.external.max_mqueue_len = 1000
+# NOT the metric limiter — see the header.
+listener.tcp.external.mqueue_rate_limit = "100000,1s"
+listener.tcp.external.max_clientid_len = 65535
+listener.tcp.external.max_qos_allowed = 2
+listener.tcp.external.max_topic_levels = 0
+listener.tcp.external.session_expiry_interval = "5m"
+listener.tcp.external.max_session_expiry_interval = "0h"
+listener.tcp.external.message_retry_interval = "5s"
+listener.tcp.external.message_expiry_interval = "5m"
+listener.tcp.external.max_subscriptions = 0
+
+# Second listener, same node: exists only to widen the client-side socket
+# budget (see the header). Same limits as the primary one so a session is worth
+# the same whichever listener it lands on.
+listener.tcp.spill.enable = true
+listener.tcp.spill.addr = "127.0.0.1:1925"
+listener.tcp.spill.workers = 8
+listener.tcp.spill.max_handshaking_limit = 2
+listener.tcp.spill.max_connections = 120_000
+listener.tcp.spill.handshake_timeout = "30s"
+listener.tcp.spill.max_packet_size = "1m"
+listener.tcp.spill.backlog = 4096
+listener.tcp.spill.allow_anonymous = true
+listener.tcp.spill.min_keepalive = 0
+listener.tcp.spill.keepalive_backoff = 0.75
+listener.tcp.spill.max_inflight = 16
+listener.tcp.spill.max_mqueue_len = 1000
+listener.tcp.spill.mqueue_rate_limit = "100000,1s"
+listener.tcp.spill.max_clientid_len = 65535
+listener.tcp.spill.max_qos_allowed = 2
+listener.tcp.spill.max_topic_levels = 0
+listener.tcp.spill.session_expiry_interval = "5m"
+listener.tcp.spill.max_session_expiry_interval = "0h"
+listener.tcp.spill.message_retry_interval = "5s"
+listener.tcp.spill.message_expiry_interval = "5m"
+listener.tcp.spill.max_subscriptions = 0
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled
+##--------------------------------------------------------------------
+## The internal TCP listener would clash between the three nodes (all default to
+## 11883); TLS/WS/WSS/QUIC are off because the incident's transport was already
+## ruled out (see the TLS variants of this case) and they would only add load.
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false

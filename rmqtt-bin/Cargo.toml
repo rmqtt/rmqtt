@@ -42,6 +42,7 @@ rmqtt-counter.workspace = true
 rmqtt-auth-http.workspace = true
 rmqtt-auth-jwt.workspace = true
 rmqtt-auto-subscription.workspace = true
+rmqtt-delayed.workspace = true
 rmqtt-shared-subscription.workspace = true
 rmqtt-bridge-egress-kafka.workspace = true
 rmqtt-bridge-ingress-kafka.workspace = true
@@ -61,15 +62,23 @@ rmqtt-web-hook.workspace = true
 rmqtt-cluster-raft.workspace = true
 rmqtt-cluster-broadcast.workspace = true
 rmqtt-p2p-messaging.workspace = true
+rmqtt-flapping.workspace = true
 #rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
-rmqtt-acl = { default_startup = true }
+# rmqtt-acl is registered as immutable on purpose. Authorization is only evaluated at
+# CONNECT / SUBSCRIBE / PUBLISH; the delivery path never checks ACL again, so a successful
+# `config/reload` would leave already-established (and session-storage-restored) subscriptions
+# in place and a revoked client would keep receiving messages. Runtime reload is therefore
+# rejected with `503 the plug-in is immutable`; changing ACL rules requires a restart plus
+# clearing the session store. See docs/en_US/acl.md -> "Changing ACL rules".
+rmqtt-acl = { default_startup = true, immutable = true }
 rmqtt-retainer = { }
 rmqtt-counter = { default_startup = true }
 rmqtt-auth-http = { }
 rmqtt-auth-jwt = { }
 rmqtt-auto-subscription = { }
+rmqtt-delayed = { }
 rmqtt-shared-subscription = { }
 rmqtt-bridge-egress-kafka = { }
 rmqtt-bridge-ingress-kafka = { }
@@ -89,6 +98,7 @@ rmqtt-web-hook = { }
 rmqtt-cluster-raft = { immutable = true }
 rmqtt-cluster-broadcast = { immutable = true }
 rmqtt-p2p-messaging = { }
+rmqtt-flapping = { }
 rmqtt-http-api = { default_startup = true }
 #rmqtt-plugin-template = { }
 

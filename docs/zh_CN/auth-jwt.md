@@ -5,6 +5,8 @@
 [JSON Web Token (JWT)](https://jwt.io/) 是一种基于 Token 的认证机制。它不需要服务器来保留客户端的认证信息或会话信息。*RMQTT* 支持基于 
 JWT 进行用户认证。
 
+> **注意——认证链与 ACL 的交互：** 本插件参与 RMQTT 按优先级排序的认证链，不会改变或覆盖 ACL 行为。当插件无法做出判定时，将判定为 `ignore` 并继续执行认证链中的下一个插件。内置的 `rmqtt-acl` 插件是认证链的末端成员，其默认末条规则 `["allow", "all"]` 的动作列省略后表示**包含 CONNECT 在内的所有操作**——被判定为 `ignore` 的连接会被它显式放行（即使 `allow_anonymous = false`）。启用本插件（或任何自定义认证插件）时，请相应配置 ACL 规则：将 `rmqtt-acl.toml` 中的 `["allow", "all"]` 注释掉并启用 `["deny", "all"]`，使只有被认证显式允许的客户端才能连接（fail-closed）。详见 `rmqtt-acl` README 与 [docs/zh_CN/acl.md](./acl.md)。
+
 #### 认证原理
 
 客户端在连接请求中携带 JWT，将使用预先配置的密钥或公钥对 JWT 签名进行验证。如果签名验证成功，JWT 认证器将继续检查声明。JWT 认证器会根据这些声

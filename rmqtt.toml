@@ -67,6 +67,14 @@ log.file = "rmqtt.log"
 #Plug in configuration file directory
 plugins.dir = "rmqtt-plugins/"
 #Plug in started by default, when the mqtt server is started
+#NOTE: rmqtt-acl (built-in, always enabled unless listed in
+#plugins.disabled_default_startups) ships a default ["allow", "all"] rule whose
+#omitted action column resolves to ALL operations including CONNECT. Connections
+#that custom auth plugins (rmqtt-auth-http, rmqtt-auth-jwt, ...) decided to
+#'ignore' are explicitly allowed by that rule, even with allow_anonymous = false.
+#When enabling a custom auth plugin, adjust the rmqtt-acl rules: comment out
+#["allow", "all"] and enable ["deny", "all"] for fail-closed behavior.
+#See rmqtt-plugins/rmqtt-acl.toml and docs/en_US/acl.md.
 plugins.default_startups = [
     #"rmqtt-plugin-template",
     "rmqtt-retainer",
@@ -92,6 +100,8 @@ plugins.default_startups = [
     #"rmqtt-web-hook",
     #"rmqtt-p2p-messaging",
     "rmqtt-shared-subscription",
+    #"rmqtt-delayed",
+    #"rmqtt-flapping",
     "rmqtt-http-api"
 ]
 
@@ -108,16 +118,11 @@ plugins.disabled_default_startups = []
 ##--------------------------------------------------------------------
 ## MQTT
 ##--------------------------------------------------------------------
-#Delayed message send limit
-mqtt.delayed_publish_max = 100_000
-#Send immediately when limit exceeded, true/false,
-#true -  message will be sent immediately,
-#false - message will be discarded,
-#default: true
-mqtt.delayed_publish_immediate = true
-
 #Maximum session limit, 0: no limit, default value: 0.
 mqtt.max_sessions = 0
+
+#Delayed publish settings moved to the rmqtt-delayed plugin config:
+#see rmqtt-delayed.toml (publish_max / publish_immediate).
 
 ##--------------------------------------------------------------------
 ## Circuit breaker
@@ -168,8 +173,6 @@ mqtt.max_sessions = 0
 ##--------------------------------------------------------------------
 ## MQTT/TCP - External TCP Listener for MQTT Protocol
 listener.tcp.external.addr = "0.0.0.0:1883"
-#Number of worker threads (currently unused)
-listener.tcp.external.workers = 8
 #The maximum number of concurrent connections allowed by the listener.
 listener.tcp.external.max_connections = 1024000
 #Maximum concurrent handshake limit, Default: 500
@@ -238,8 +241,6 @@ listener.tcp.external.max_subscriptions = 0
 listener.tcp.external.max_topic_aliases = 32
 #Limit subscription switch, default value: false
 listener.tcp.external.limit_subscription = false
-#Delayed publish switch, default value: false
-listener.tcp.external.delayed_publish = false
 #Proxy Protocol switch, default value: false
 listener.tcp.external.proxy_protocol = false
 #Proxy Protocol timeout, default value: 5s
@@ -289,6 +290,23 @@ listener.tls.external.cert_cn_as_username = false
 # false - disable this feature; the username must be provided in the CONNECT packet
 # Default: false
 listener.tls.external.cert_subject_dn_as_username = false
+
+# Whether to use the SPIFFE ID (URI SAN, e.g. spiffe://example.com/user/barry) from the
+# client certificate as the username. Takes precedence over cert_subject_dn_as_username /
+# cert_cn_as_username; a certificate carrying more than one URI SAN is never bound.
+# Only the TLS/WSS listeners support the certificate-derived options (CN/DN/SPIFFE);
+# the QUIC listener does not extract certificates yet.
+# Default: false
+listener.tls.external.cert_spiffe_as_username = false
+
+# How a SPIFFE ID is turned into a username (only effective when
+# cert_spiffe_as_username = true):
+#   "uri"  - the full URI, e.g. spiffe://example.com/user/barry (default)
+#   "path" - the URI path only, e.g. /user/barry (drops the trust domain, may collide
+#            across trust domains)
+#   "name" - the last non-empty path segment, e.g. barry (same caveat as "path")
+# Default: "uri"
+listener.tls.external.cert_spiffe_username_format = "uri"
 
 # Whether to collect client certificate information (cert_info) and
 # include it in the MQTT connection metadata

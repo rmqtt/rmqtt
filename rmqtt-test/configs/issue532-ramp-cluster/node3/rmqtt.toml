@@ -1,0 +1,65 @@
+##--------------------------------------------------------------------
+## rmqttd node 3 — issue #532 cluster reproduction
+##
+## Same fixture as node 1 (`node1/rmqtt.toml` carries the full rationale:
+## why the ports, why no TLS/session-storage/http-api, and why the handshake
+## pool is two workers). Only the identity and the ports differ:
+## node 3 — MQTT 1907 / gRPC 5384.
+##--------------------------------------------------------------------
+node.id = 3
+
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+rpc.server_addr = "0.0.0.0:5384"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+log.to = "console"
+log.level = "info"
+log.dir = "."
+log.file = "rmqtt_issue532_cluster_3.log"
+
+plugins.dir = "./rmqtt-test/configs/issue532-ramp-cluster/plugins"
+plugins.default_startups = [
+    "rmqtt-cluster-broadcast",
+    "rmqtt-sys-topic",
+]
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter", "rmqtt-http-api"]
+
+listener.tcp.external.addr = "0.0.0.0:1907"
+listener.tcp.external.workers = 8
+listener.tcp.external.max_connections = 4096
+# The pool this case saturates (see node1/rmqtt.toml).
+listener.tcp.external.max_handshaking_limit = 2
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1m"
+listener.tcp.external.backlog = 1024
+listener.tcp.external.allow_anonymous = true
+listener.tcp.external.min_keepalive = 0
+listener.tcp.external.keepalive_backoff = 0.75
+listener.tcp.external.max_inflight = 16
+listener.tcp.external.max_mqueue_len = 1000
+listener.tcp.external.mqueue_rate_limit = "1000,1s"
+listener.tcp.external.max_clientid_len = 65535
+listener.tcp.external.max_qos_allowed = 2
+listener.tcp.external.max_topic_levels = 0
+listener.tcp.external.session_expiry_interval = "5m"
+listener.tcp.external.max_session_expiry_interval = "0h"
+listener.tcp.external.message_retry_interval = "5s"
+listener.tcp.external.message_expiry_interval = "5m"
+listener.tcp.external.max_subscriptions = 0
+
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false

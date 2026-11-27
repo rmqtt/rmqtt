@@ -829,6 +829,41 @@ tr:hover td { background: var(--bg-hover); }
   text-align: right;
 }
 
+/* ─── Payload 编辑框（延迟发布详情） ─── */
+.payload-editor {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  max-height: 46vh;
+  min-height: 220px;
+  overflow: auto;
+}
+.payload-gutter {
+  flex-shrink: 0;
+  position: sticky;
+  left: 0;
+  padding: 8px 8px 8px 12px;
+  text-align: right;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  border-right: 1px solid var(--border);
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  user-select: none;
+}
+.payload-content {
+  margin: 0;
+  padding: 8px 12px;
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  color: var(--text);
+  outline: none;
+}
+
 /* ─── 选项卡 ─── */
 .tab-bar {
   display: flex;

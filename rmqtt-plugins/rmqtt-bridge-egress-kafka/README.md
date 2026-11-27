@@ -69,6 +69,23 @@ Additional librdkafka producer properties. See [librdkafka Configuration](https:
 | `message.timeout.ms` | String | `5000` | Message timeout in milliseconds |
 | Any other librdkafka property | String | - | See librdkafka configuration documentation |
 
+### TLS, mTLS and SASL
+
+Linux builds link librdkafka against OpenSSL, so TLS-only brokers (Aiven, Confluent Cloud, MSK, Redpanda Cloud) work through `[bridges.properties]`:
+
+```toml
+[bridges.properties]
+"security.protocol" = "ssl"                                     # or "sasl_ssl"
+"ssl.ca.location" = "/etc/rmqtt/kafka/ca.pem"
+"ssl.certificate.location" = "/etc/rmqtt/kafka/service.cert"   # mTLS
+"ssl.key.location" = "/etc/rmqtt/kafka/service.key"            # mTLS
+#"sasl.mechanism" = "SCRAM-SHA-256"   # PLAIN, SCRAM-SHA-256/512, OAUTHBEARER
+#"sasl.username" = "user"
+#"sasl.password" = "secret"
+```
+
+Use `ssl.ca.location = "probe"` for brokers with a public CA.
+
 ### Bridge Entry (`[[bridges.entries]]`)
 
 Each bridge entry defines a topic forwarding rule.
@@ -80,6 +97,9 @@ Each bridge entry defines a topic forwarding rule.
 | `remote.queue_timeout` | Duration | `0m` | How long to retry if the librdkafka producer queue is full. `0` means never block |
 | `remote.partition` | Integer | - | Destination partition of the record (optional) |
 | `remote.skip_levels` | Integer | `0` | Number of leading topic levels to skip when substituting `${local.topic}` |
+| `remote.forward_all_from` | Boolean | `true` | Forward all from data: `from_type`, `from_node`, `from_ipaddress`, `from_clientid`, `from_username` |
+| `remote.forward_all_publish` | Boolean | `true` | Forward all publish data: `dup`, `retain`, `qos`, `packet_id` |
+| `remote.forward_user_properties` | Boolean | `false` | Forward MQTT v5 user properties as Kafka headers, unaltered and in order |
 
 ## Example Configuration
 

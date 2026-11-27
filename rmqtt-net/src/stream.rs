@@ -281,15 +281,29 @@ pub mod v3 {
                 Ok(Some(Packet::Connect(mut connect))) => {
                     #[cfg(feature = "tls")]
                     {
-                        // Subject DN takes precedence over CN when both
-                        // flags are set: full DN includes O/OU/CN and is
-                        // self-namespacing across CAs.
+                        // Certificate-derived sources take precedence over a
+                        // self-reported username, in order of specificity:
+                        // a SPIFFE ID is globally unique, the full DN is
+                        // self-namespacing across CAs, and the CN alone is
+                        // neither. When no enabled source hits, the username
+                        // the client sent is kept.
                         if let Some(cert) = &self.cert_info {
-                            if self.cfg.cert_subject_dn_as_username && !cert.subject.is_empty() {
-                                connect.username = Some(cert.subject.clone().into());
-                            } else if self.cfg.cert_cn_as_username {
-                                if let Some(cn) = &cert.common_name {
-                                    connect.username = Some(cn.clone().into());
+                            let mut bound = false;
+                            if self.cfg.cert_spiffe_as_username {
+                                if let Some(id) = &cert.spiffe_id {
+                                    if let Some(username) = self.cfg.cert_spiffe_username_format.apply(id) {
+                                        connect.username = Some(username.into());
+                                        bound = true;
+                                    }
+                                }
+                            }
+                            if !bound {
+                                if self.cfg.cert_subject_dn_as_username && !cert.subject.is_empty() {
+                                    connect.username = Some(cert.subject.clone().into());
+                                } else if self.cfg.cert_cn_as_username {
+                                    if let Some(cn) = &cert.common_name {
+                                        connect.username = Some(cn.clone().into());
+                                    }
                                 }
                             }
                         }
@@ -508,15 +522,29 @@ pub mod v5 {
                 Ok(Some(Packet::Connect(mut connect))) => {
                     #[cfg(feature = "tls")]
                     {
-                        // Subject DN takes precedence over CN when both
-                        // flags are set: full DN includes O/OU/CN and is
-                        // self-namespacing across CAs.
+                        // Certificate-derived sources take precedence over a
+                        // self-reported username, in order of specificity:
+                        // a SPIFFE ID is globally unique, the full DN is
+                        // self-namespacing across CAs, and the CN alone is
+                        // neither. When no enabled source hits, the username
+                        // the client sent is kept.
                         if let Some(cert) = &self.cert_info {
-                            if self.cfg.cert_subject_dn_as_username && !cert.subject.is_empty() {
-                                connect.username = Some(cert.subject.clone().into());
-                            } else if self.cfg.cert_cn_as_username {
-                                if let Some(cn) = &cert.common_name {
-                                    connect.username = Some(cn.clone().into());
+                            let mut bound = false;
+                            if self.cfg.cert_spiffe_as_username {
+                                if let Some(id) = &cert.spiffe_id {
+                                    if let Some(username) = self.cfg.cert_spiffe_username_format.apply(id) {
+                                        connect.username = Some(username.into());
+                                        bound = true;
+                                    }
+                                }
+                            }
+                            if !bound {
+                                if self.cfg.cert_subject_dn_as_username && !cert.subject.is_empty() {
+                                    connect.username = Some(cert.subject.clone().into());
+                                } else if self.cfg.cert_cn_as_username {
+                                    if let Some(cn) = &cert.common_name {
+                                        connect.username = Some(cn.clone().into());
+                                    }
                                 }
                             }
                         }

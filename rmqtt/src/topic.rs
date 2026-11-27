@@ -225,8 +225,8 @@ impl Topic {
 
     /// Validate the entire topic according to MQTT specification rules.
     ///
-    /// Checks that wildcards are positioned correctly (multi-level `#` must be last),
-    /// metadata levels only appear as the first segment, and each level is valid.
+    /// Checks that wildcards are positioned correctly (multi-level `#` must be last)
+    /// and each level is valid.
     #[inline]
     pub fn is_valid(&self) -> bool {
         self.0
@@ -235,7 +235,6 @@ impl Topic {
             .or_else(|| {
                 self.0.iter().enumerate().position(|(pos, level)| match *level {
                     Level::MultiWildcard => pos != self.0.len() - 1,
-                    Level::Metadata(_) => pos != 0,
                     _ => false,
                 })
             })
@@ -270,6 +269,152 @@ impl Topic {
     #[inline]
     pub fn to_string_skip(&self, skip: usize) -> String {
         self.0.iter().skip(skip).map(|lvl| lvl.to_string()).collect::<Vec<_>>().join("/")
+    }
+}
+
+/// Check whether `topic` can be used as a PUBLISH **topic name**.
+///
+/// A topic name is not a topic filter: `+` and `#` are wildcards reserved for
+/// subscriptions (§4.7.1), and a PUBLISH whose Topic Name carries one is a
+/// violation a conforming peer answers by dropping the connection —
+/// [MQTT-3.3.2-2]. The name is also a UTF-8 Encoded String, so it must be at
+/// least one character long ([MQTT-4.7.3-1]), must not contain U+0000, and must
+/// fit in the 65535 bytes its two-byte length prefix can express (§1.5.4).
+///
+/// Blank levels are *not* rejected: `a//b` and `/` are legal names — only a
+/// wholly empty name is illegal.
+///
+/// ```
+/// use rmqtt::topic::is_valid_topic_name;
+///
+/// assert!(is_valid_topic_name("a/b/c"));
+/// assert!(is_valid_topic_name("/"));
+/// assert!(!is_valid_topic_name(""));
+/// assert!(!is_valid_topic_name("a/#"));
+/// assert!(!is_valid_topic_name("a/+/b"));
+/// ```
+#[inline]
+pub fn is_valid_topic_name<T: AsRef<str>>(topic: T) -> bool {
+    let topic = topic.as_ref();
+    !topic.is_empty() && topic.len() <= u16::MAX as usize && !topic.contains(['+', '#', '\0'])
+}
+
+/// The `$share/<ShareName>/<TopicFilter>` prefix of a shared subscription
+/// ([MQTT-4.8.2-1]).
+const SHARED_SUBSCRIPTION_PREFIX: &str = "$share/";
+
+/// The `$limit/<n>/<TopicFilter>` prefix of a limited subscription (rmqtt
+/// extension, see `types::parse_topic_filter`).
+const LIMIT_SUBSCRIPTION_PREFIX: &str = "$limit/";
+
+/// The `$exclusive/<TopicFilter>` prefix of an exclusive subscription (rmqtt
+/// extension, see `types::parse_topic_filter`).
+const EXCLUSIVE_SUBSCRIPTION_PREFIX: &str = "$exclusive/";
+
+/// Check whether `topic` can be used as an MQTT topic **filter** (a
+/// subscription pattern).
+///
+/// This is the counterpart of [`is_valid_topic_name`]: `+` and `#` *are* legal
+/// here — and only here — with `#` restricted to the last level (§4.7.1.2,
+/// [MQTT-4.7.1-1]). Like a name, a filter is a UTF-8 Encoded String, so it must
+/// be at least one character long ([MQTT-4.7.3-1]), must not contain U+0000,
+/// and must fit in the 65535 bytes its two-byte length prefix can express
+/// (§1.5.4).
+///
+/// The `$share/<group>/<filter>` form is deliberately *not* special-cased: it
+/// parses as an ordinary filter whose first level is the metadata level
+/// `$share`. Such a filter only matches a topic *named* `$share/<group>/...`,
+/// i.e. not the shared subscription the author meant, so the shared form is
+/// recognised by [`is_shared_subscription`] and validated by
+/// [`is_valid_subscription_filter`] instead of being folded in here.
+///
+/// ```
+/// use rmqtt::topic::is_valid_topic_filter;
+///
+/// assert!(is_valid_topic_filter("a/b/#"));
+/// assert!(is_valid_topic_filter("+"));
+/// assert!(!is_valid_topic_filter(""));
+/// assert!(!is_valid_topic_filter("a/#/b"));
+/// ```
+#[inline]
+pub fn is_valid_topic_filter<T: AsRef<str>>(topic: T) -> bool {
+    let topic = topic.as_ref();
+    !topic.is_empty()
+        && topic.len() <= u16::MAX as usize
+        && !topic.contains('\0')
+        && Topic::from_str(topic).is_ok()
+}
+
+/// `true` when `topic` is written in the `$share/<ShareName>/<TopicFilter>`
+/// form of a shared subscription ([MQTT-4.8.2-1]).
+///
+/// Only the prefix is examined — whether the group and the filter are usable is
+/// what [`is_valid_subscription_filter`] decides.
+#[inline]
+pub fn is_shared_subscription<T: AsRef<str>>(topic: T) -> bool {
+    topic.as_ref().starts_with(SHARED_SUBSCRIPTION_PREFIX)
+}
+
+/// `true` when `topic` is written in the `$limit/<n>/<TopicFilter>` form of a
+/// limited subscription (rmqtt extension).
+///
+/// Only the prefix is examined — whether `<n>` is a number and the filter behind
+/// it is usable is what `types::parse_topic_filter` decides.
+#[inline]
+pub fn is_limit_subscription<T: AsRef<str>>(topic: T) -> bool {
+    topic.as_ref().starts_with(LIMIT_SUBSCRIPTION_PREFIX)
+}
+
+/// `true` when `topic` is written in the `$exclusive/<TopicFilter>` form of an
+/// exclusive subscription (rmqtt extension).
+#[inline]
+pub fn is_exclusive_subscription<T: AsRef<str>>(topic: T) -> bool {
+    topic.as_ref().starts_with(EXCLUSIVE_SUBSCRIPTION_PREFIX)
+}
+
+/// Check whether `topic` is a legal filter to put in a SUBSCRIBE.
+///
+/// Accepts an ordinary filter, or the shared form
+/// `$share/<ShareName>/<TopicFilter>` where the filter behind the ShareName is
+/// itself legal ([MQTT-4.8.2-1], [MQTT-4.8.2-2]).
+///
+/// An empty ShareName (`$share//a`) is accepted, because
+/// `types::parse_topic_filter` accepts it: [MQTT-4.8.2-1] requires at least one
+/// character, but the broker has always taken an empty group as it stands, and a
+/// predicate used to decide whether a *peer* can be subscribed must not be
+/// stricter than the parser it is describing. Tightening both sides is a
+/// protocol-facing change of its own; until then this predicate reports what the
+/// broker does.
+///
+/// The WHOLE string is what goes on the wire as one UTF-8 Encoded String, so the
+/// 65535-byte cap (§1.5.4) applies to it — not only to the filter behind the
+/// ShareName, which [`is_valid_topic_filter`] checks separately.
+///
+/// ```
+/// use rmqtt::topic::is_valid_subscription_filter;
+///
+/// assert!(is_valid_subscription_filter("a/b/#"));
+/// assert!(is_valid_subscription_filter("$share/g/a/b/#"));
+/// assert!(is_valid_subscription_filter("$share//a/b"));
+/// assert!(!is_valid_subscription_filter("$share/g"));
+/// assert!(!is_valid_subscription_filter("$share/+/a"));
+/// assert!(!is_valid_subscription_filter(&format!("$share/{}x", "g".repeat(70_000))));
+/// ```
+#[inline]
+pub fn is_valid_subscription_filter<T: AsRef<str>>(topic: T) -> bool {
+    let topic = topic.as_ref();
+    if topic.len() > u16::MAX as usize {
+        return false;
+    }
+    match topic.strip_prefix(SHARED_SUBSCRIPTION_PREFIX) {
+        None => is_valid_topic_filter(topic),
+        Some(rest) => match rest.split_once('/') {
+            Some((share_name, filter)) => {
+                !share_name.contains(['+', '#', '\0']) && is_valid_topic_filter(filter)
+            }
+            // `$share/` or `$share/<group>` with no filter part at all.
+            None => false,
+        },
     }
 }
 
@@ -479,6 +624,126 @@ mod tests {
     }
 
     #[test]
+    fn test_is_valid_topic_name() {
+        for name in ["a", "a/b/c", "/", "a//b", "$SYS/broker/load", "x/", "sport.tennis"] {
+            assert!(is_valid_topic_name(name), "`{name}` must be a valid topic name");
+        }
+
+        for name in ["", "#", "+", "a/#", "a/+/b", "a/b/+", "sport+", "a#b", "a\0b"] {
+            assert!(!is_valid_topic_name(name), "`{name}` must not be a valid topic name");
+        }
+
+        assert!(is_valid_topic_name("a".repeat(u16::MAX as usize)));
+        assert!(!is_valid_topic_name("a".repeat(u16::MAX as usize + 1)));
+    }
+
+    #[test]
+    fn test_is_valid_topic_filter() {
+        for filter in ["a", "#", "+", "a/b/c", "a/#", "a/+/b", "+/+", "/", "a//b", "$SYS/#", "/+", "x/"] {
+            assert!(is_valid_topic_filter(filter), "`{filter}` must be a valid topic filter");
+        }
+
+        for filter in ["", "a/#/b", "#/a", "a/#/", "a#", "#a", "sport+", "a/+/b#", "a\0b"] {
+            assert!(!is_valid_topic_filter(filter), "`{filter}` must not be a valid topic filter");
+        }
+
+        assert!(is_valid_topic_filter("a".repeat(u16::MAX as usize)));
+        assert!(!is_valid_topic_filter("a".repeat(u16::MAX as usize + 1)));
+
+        // The shared form is a plain filter as far as this predicate is
+        // concerned: it parses, and it matches a topic literally named
+        // `$share/...`. That is why callers that need to spot the shared form
+        // use `is_shared_subscription` rather than relying on this predicate.
+        assert!(is_valid_topic_filter("$share/g/a/b/#"));
+        assert!(is_valid_topic_filter("$share//a"));
+    }
+
+    #[test]
+    fn test_is_shared_subscription() {
+        assert!(is_shared_subscription("$share/g/a"));
+        assert!(is_shared_subscription("$share/"));
+        assert!(is_shared_subscription("$share//a"));
+
+        for filter in ["", "$share", "share/g/a", "a/$share/g"] {
+            assert!(!is_shared_subscription(filter), "`{filter}` must not look shared");
+        }
+    }
+
+    #[test]
+    fn test_is_limit_and_exclusive_subscription() {
+        for filter in ["$limit/10/a/#", "$limit//a"] {
+            assert!(is_limit_subscription(filter), "`{filter}` must look limited");
+            assert!(!is_exclusive_subscription(filter), "`{filter}` must not look exclusive");
+        }
+
+        for filter in ["$exclusive/a/#", "$exclusive/"] {
+            assert!(is_exclusive_subscription(filter), "`{filter}` must look exclusive");
+            assert!(!is_limit_subscription(filter), "`{filter}` must not look limited");
+        }
+
+        for filter in ["", "$limit", "$exclusive", "limit/10/a", "a/$limit/10/b"] {
+            assert!(
+                !is_limit_subscription(filter) && !is_exclusive_subscription(filter),
+                "`{filter}` must look neither limited nor exclusive"
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_valid_subscription_filter() {
+        for filter in [
+            "a",
+            "#",
+            "+",
+            "a/b/#",
+            "$share/g/a",
+            "$share/g/a/b/#",
+            "$share/g/#",
+            "$share/g/+",
+            // An empty ShareName violates [MQTT-4.8.2-1], but `parse_topic_filter`
+            // accepts it and this predicate must agree with the parser.
+            "$share//a",
+            "$share//a/b/#",
+        ] {
+            assert!(
+                is_valid_subscription_filter(filter),
+                "`{filter}` must be a valid filter to subscribe with"
+            );
+        }
+
+        for filter in [
+            "",
+            "a/#/b",
+            "a#",
+            // A shared subscription must carry a group and a filter.
+            "$share/",
+            "$share/g",
+            "$share/g/",
+            "$share/+/a",
+            "$share/#/a",
+            // …and the filter behind the group must itself be legal.
+            "$share/g/a/#/b",
+            "$share/g/a#",
+        ] {
+            assert!(
+                !is_valid_subscription_filter(filter),
+                "`{filter}` must not be a valid filter to subscribe with"
+            );
+        }
+
+        // The 65535-byte cap applies to the WHOLE string, not just the filter
+        // behind the ShareName: this one carries a legal inner filter but a
+        // ShareName big enough to push the total past what the two-byte length
+        // prefix of a UTF-8 Encoded String can express (§1.5.4).
+        let over_long = format!("$share/{}x/a", "g".repeat(u16::MAX as usize));
+        assert!(!is_valid_subscription_filter(&over_long));
+        // Same total length WITHOUT the `$share/` prefix is refused by the
+        // plain-filter arm for the same reason; both arms must agree.
+        let plain_over_long = format!("{}/a", "g".repeat(u16::MAX as usize));
+        assert!(!is_valid_subscription_filter(&plain_over_long));
+    }
+
+    #[test]
     fn test_valid_topic() {
         assert!(Topic(vec![
             Level::normal("sport").unwrap(),
@@ -513,7 +778,7 @@ mod tests {
             Level::normal("player1").unwrap()
         ])
         .is_valid());
-        assert!(!Topic(vec![
+        assert!(Topic(vec![
             Level::normal("sport").unwrap(),
             Level::metadata("$SYS").unwrap(),
             Level::normal("player1").unwrap()
@@ -535,7 +800,8 @@ mod tests {
             .matches(&Topic::from(vec![Level::Blank, Level::normal("finance").unwrap()])));
 
         assert!(topic!("$SYS").unwrap().matches(&Topic::from(vec![Level::metadata("$SYS").unwrap()])));
-        assert!("sport/$SYS".parse::<Topic>().is_err());
+        assert!("sport/$SYS".parse::<Topic>().is_ok());
+        assert!("valetudo/jimmy/$state".parse::<Topic>().is_ok());
     }
 
     #[test]
@@ -614,5 +880,160 @@ mod tests {
         assert!(!Topic::from_str("+/monitor/Clients").expect("").matches_str("$SYS/monitor/Clients"));
         assert!(Topic::from_str("$SYS/#").expect("").matches_str("$SYS/"));
         assert!(Topic::from_str("$SYS/monitor/+").expect("").matches_str("$SYS/monitor/Clients"));
+    }
+
+    /// [MQTT-4.7.1-1]: a level may be empty, so a blank level in the middle or at
+    /// either end is a legal topic name and must survive a round trip. Only the
+    /// zero-length *name* is refused, and the codec does that on the wire
+    /// (`rmqtt_codec::v3::decode`), not this parser.
+    #[test]
+    fn test_blank_levels() {
+        for name in ["a//b", "a/", "/a", "/"] {
+            let topic = Topic::from_str(name).expect("blank levels are legal");
+            assert!(topic.is_valid(), "`{name}` must stay valid");
+            assert_eq!(topic.to_string(), name, "`{name}` must round-trip");
+        }
+
+        let topic = Topic::from_str("a//b").unwrap();
+        assert_eq!(topic.levels().len(), 3);
+        assert_eq!(topic.levels()[1], Level::Blank);
+    }
+
+    /// `#` is legal only as the last level, and never as part of a level.
+    #[test]
+    fn test_number_sign_position() {
+        for name in ["#", "a/#", "a/b/#"] {
+            assert!(Topic::from_str(name).is_ok(), "`{name}` must be accepted");
+        }
+        for name in ["#/a", "a/#/b", "a/#/", "a#", "#a"] {
+            assert!(Topic::from_str(name).is_err(), "`{name}` must be rejected");
+        }
+    }
+
+    /// A `$`-prefixed level is legal in *any* position (GitHub issue #537):
+    /// [MQTT-4.7.2-1] reserves only topic names that *begin* with `$`.
+    #[test]
+    fn test_dollar_level_is_valid_in_any_position() {
+        for name in ["$SYS", "$SYS/a", "a/$state", "a/b/$state", "homie/dev/$state", "a/$b/+", "$SYS/#"] {
+            let topic = Topic::from_str(name).unwrap_or_else(|e| panic!("`{name}` must be accepted: {e}"));
+            assert!(topic.is_valid(), "`{name}` must stay valid");
+            assert_eq!(topic.to_string(), name);
+        }
+    }
+
+    /// A metadata level matches only a metadata level: the same text without the
+    /// `$` is a different topic.
+    #[test]
+    fn test_metadata_level_matches_only_metadata() {
+        assert!(Topic::from_str("a/$b").unwrap().matches_str("a/$b"));
+        assert!(!Topic::from_str("a/$b").unwrap().matches_str("a/b"));
+        assert!(!Topic::from_str("a/b").unwrap().matches_str("a/$b"));
+        assert!(Topic::from_str("$SYS/a").unwrap().matches_str("$SYS/a"));
+    }
+
+    /// The `$` isolation of [MQTT-4.7.2-1] is about the *first* level, and `#`
+    /// honours it. An explicit `$` level is how a client reaches a system topic.
+    #[test]
+    fn test_root_wildcard_does_not_match_dollar_name() {
+        assert!(!Topic::from_str("#").unwrap().matches_str("$SYS"));
+        assert!(!Topic::from_str("#").unwrap().matches_str("$SYS/a"));
+        assert!(!Topic::from_str("+/a").unwrap().matches_str("$SYS/a"));
+        assert!(!Topic::from_str("+/+").unwrap().matches_str("$SYS/a"));
+        assert!(Topic::from_str("$SYS/#").unwrap().matches_str("$SYS/a"));
+        assert!(Topic::from_str("$SYS/+").unwrap().matches_str("$SYS/a"));
+        assert!(Topic::from_str("$SYS").unwrap().matches_str("$SYS"));
+    }
+
+    /// A `$` level *below* the root is an ordinary level for the wildcards above
+    /// it, which is what the Homie convention relies on.
+    #[test]
+    fn test_hash_reaches_a_dollar_level_below_the_root() {
+        assert!(Topic::from_str("#").unwrap().matches_str("a/$b"));
+        assert!(Topic::from_str("#").unwrap().matches_str("homie/dev/$state"));
+        assert!(Topic::from_str("a/+/$b").unwrap().matches_str("a/x/$b"));
+    }
+
+    /// ⚠️ Recorded deviation from [MQTT-4.7.2-1]. The `matches!` macro `break`s out
+    /// of its loop when a `+` meets a `$` level, and the tail of the macro then
+    /// inspects what is left of the *filter* only — so a `+` that happens to be the
+    /// filter's last level reports a match anyway. `TopicTree` (`trie.rs`) and the
+    /// retain tree (`retain.rs`) refuse these, so routing is unaffected;
+    /// `Topic::matches_str` backs the ACL matcher, where this is a fail-open. The
+    /// values are today's behaviour, asserted so that the inconsistency stays
+    /// visible; narrowing it to the first level is a follow-up, not a silent change.
+    #[test]
+    fn test_trailing_plus_is_swallowed_against_dollar_name() {
+        assert!(Topic::from_str("+").unwrap().matches_str("$SYS"));
+        assert!(Topic::from_str("+").unwrap().matches_str("$SYS/a"));
+        assert!(Topic::from_str("a/+").unwrap().matches_str("a/$b"));
+        // …but not once the `+` has a level after it, and never for `#`.
+        assert!(!Topic::from_str("+/a").unwrap().matches_str("$SYS/a"));
+        assert!(!Topic::from_str("a/+/b").unwrap().matches_str("a/$x/b"));
+        assert!(!Topic::from_str("a/#").unwrap().matches_str("a/$b"));
+    }
+
+    /// A `$` *inside* a level is an ordinary character: only a level that *begins*
+    /// with `$` is a metadata level. That single rule is what separates
+    /// `homie/$dev/$state` (two metadata levels) from `homie/dev$/sta$te` (none), and
+    /// it is decided by `Level::from_str`, so the parsed levels are asserted here
+    /// rather than the strings.
+    #[test]
+    fn test_dollar_inside_a_level_is_ordinary() {
+        use Level::{Metadata, Normal};
+
+        let cases: [(&str, Vec<Level>); 5] = [
+            (
+                "homie/$dev/$state",
+                vec![Normal("homie".into()), Metadata("$dev".into()), Metadata("$state".into())],
+            ),
+            (
+                "homie/dev$/$state",
+                vec![Normal("homie".into()), Normal("dev$".into()), Metadata("$state".into())],
+            ),
+            ("homie/dev/sta$te", vec![Normal("homie".into()), Normal("dev".into()), Normal("sta$te".into())]),
+            ("homie/d$ev/state", vec![Normal("homie".into()), Normal("d$ev".into()), Normal("state".into())]),
+            ("homie/$/state", vec![Normal("homie".into()), Metadata("$".into()), Normal("state".into())]),
+        ];
+
+        for (name, levels) in cases {
+            let topic = Topic::from_str(name).unwrap_or_else(|e| panic!("`{name}` must be accepted: {e}"));
+            assert!(topic.is_valid(), "`{name}` must stay valid");
+            assert_eq!(topic.levels().as_slice(), levels.as_slice(), "`{name}` parsed the wrong levels");
+        }
+
+        // The constructors draw the same line: a non-leading `$` is not metadata, and
+        // a metadata level may not carry a wildcard — including right after the `$`.
+        assert!(Level::normal("dev$").is_ok());
+        assert!(Level::metadata("dev$").is_err());
+        assert!(Level::metadata("$+").is_err());
+        assert!(!Level::Metadata(String::from("dev$")).is_valid());
+    }
+
+    /// The wildcards around those levels. A `$`-prefixed level is not matched by a
+    /// `+` standing in for it — unless the `+` is the filter's last level, which is
+    /// the deviation recorded above — while `#` placed *above* the level reaches the
+    /// whole name, and a `$` inside a level is matched like any other text.
+    #[test]
+    fn test_wildcards_around_a_dollar_level() {
+        // Ordinary levels, `$` inside or not.
+        assert!(Topic::from_str("homie/+/+").unwrap().matches_str("homie/dev$/sta$te"));
+        assert!(Topic::from_str("homie/+/+").unwrap().matches_str("homie/d$ev/state"));
+        assert!(Topic::from_str("homie/+").unwrap().matches_str("homie/dev$"));
+
+        // A `$`-prefixed level is only reachable by an explicit term, as long as the
+        // filter has a level left after the `+` …
+        assert!(!Topic::from_str("homie/+/+").unwrap().matches_str("homie/$dev/$state"));
+        assert!(!Topic::from_str("homie/+/$state").unwrap().matches_str("homie/$dev/$state"));
+        assert!(!Topic::from_str("homie/#").unwrap().matches_str("homie/$dev/$state"));
+        // … and the recorded deviation is what happens when it has none.
+        assert!(Topic::from_str("homie/+").unwrap().matches_str("homie/$dev"));
+
+        // `#` above the level covers the name, and the explicit form matches it.
+        assert!(Topic::from_str("#").unwrap().matches_str("homie/$dev/$state"));
+        assert!(Topic::from_str("homie/$dev/$state").unwrap().matches_str("homie/$dev/$state"));
+
+        // The same text with and without the `$` is two different levels.
+        assert!(Topic::from_str("homie/dev$").unwrap().matches_str("homie/dev$"));
+        assert!(!Topic::from_str("homie/dev$").unwrap().matches_str("homie/dev"));
     }
 }

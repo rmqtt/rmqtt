@@ -269,6 +269,15 @@ impl MonitorData {
             .with_label_values(&[label, "delayed_publishs.max"])
             .set(stats.delayed_publishs.max() as i64);
 
+        // Bans in force, read from the connection gate the flapping plugin
+        // installs. Zero when no gate is installed.
+        self.stats_gauge_vec
+            .with_label_values(&[label, "flapping_banned.count"])
+            .set(stats.flapping_banned.count() as i64);
+        self.stats_gauge_vec
+            .with_label_values(&[label, "flapping_banned.max"])
+            .set(stats.flapping_banned.max() as i64);
+
         let router = scx.extends.router().await;
         let topics = router.merge_topics(&stats.topics_map);
         let routes = router.merge_routes(&stats.routes_map);

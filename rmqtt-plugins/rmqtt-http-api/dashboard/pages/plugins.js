@@ -1,5 +1,5 @@
 /* ============================================================
-   RMQTT Dashboard — 插件管理页
+   RMQTT Dashboard — plugins page
    ============================================================ */
 window.PluginsPage = Vue.defineComponent({
   name: 'PluginsPage',
@@ -38,7 +38,7 @@ window.PluginsPage = Vue.defineComponent({
         </table>
       </div>
 
-      <!-- 配置弹窗 -->
+      <!-- Config dialog -->
       <div v-if="showConfig" style="position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:100;">
         <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:600px;max-height:80vh;overflow-y:auto;">
           <h3 style="margin-bottom:12px;">{{ configPluginName }} 配置</h3>

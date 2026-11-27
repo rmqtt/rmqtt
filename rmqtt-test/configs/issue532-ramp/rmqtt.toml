@@ -1,0 +1,152 @@
+##--------------------------------------------------------------------
+## rmqttd config for the issue #532 connect-ramp stall reproducer
+##
+## Purpose: drive a sustained connection ramp against ONE node and detect
+## the incident signature of issue #532 — the node stops completing
+## handshakes while the process stays alive, TCP still accepts, CPU drops
+## to zero and it never recovers. No cluster: the peer-side symptoms of
+## the report (handy-grpc duplex transfer failures, responses arriving
+## after the caller gave up) belong to the amplification path and are
+## analysed in designs/issue-532-broadcast-cluster-hang-analysis.md.
+##
+## Why the knobs are what they are (all of them are load-bearing):
+##
+## * max_handshaking_limit = 2. Every connection's handshake runs as
+##   `_handshake(..).spawn(&exec).result()` against the per-port
+##   `HandshakeExecutor` (rmqtt/src/v3.rs, v5.rs), i.e. through the
+##   `TaskExecQueue` whose dispatcher parks whenever every worker is busy
+##   (`task-exec-queue/src/exec.rs`, the `idle_idxs.is_empty()` arm). A
+##   two-worker pool makes that park path the *steady state* of the ramp
+##   instead of a rare event, which is what this case needs to reach the
+##   park/wake window within a minute. The stock 500 keeps the arm almost
+##   idle at these rates, so a ramp against the default config would not
+##   exercise it at all.
+##
+## * max_connections = 4096. Doubles as the exec queue capacity and the
+##   listener's connection cap; it is far above the ramp's concurrency
+##   (256) so neither the cap nor the `waiting_count >= queue_max`
+##   admission gate can produce a refusal. The only saturated resource
+##   is the handshake worker pool — which keeps the evidence unambiguous.
+##
+## * node.busy.* stays at its defaults with check_enable = false, so a
+##   "system overloaded" CONNACK (V3 0x03 / V5 0x88) can never be
+##   mistaken for the stall.
+##
+## * `rmqtt-sys-topic` with publish_interval = "1s" (the config clamps
+##   anything below 1s). Its loop runs `scx.stats.clone(scx).await` every
+##   tick, which reaches `HandshakeExecutor::get_rate()` — the periodic
+##   visitor of the same executor. The shipped 1m interval would fire
+##   roughly once per run.
+##
+## * log.to = "file". The harness pipes rmqttd's stdout/stderr and never
+##   drains them (broker/lifecycle.rs), so a console broker can block on a
+##   full pipe under this much traffic — a harness artefact that would be
+##   indistinguishable from the stall. A file sink removes that failure
+##   mode and doubles as evidence: "its log ends" is visible as a frozen
+##   mtime, which the case reports.
+##
+## * TCP only. `configs/issue532-ramp-tls/` is this same fixture with the ramp
+##   on a TLS listener, and TLS is NOT merely "the same handshake, encrypted":
+##   `rmqtt/src/server.rs::listen_tls` performs the TLS handshake inside a
+##   per-connection `tokio::spawn`, i.e. outside the per-port
+##   `TaskExecQueue` that `max_handshaking_limit` sizes, so it adds unbounded
+##   parallel CPU work (rustls + certificate verification) right next to that
+##   queue's dispatcher task. That single variable is what the TLS fixture
+##   exists to isolate. Every other listener type stays disabled because the
+##   harness runs suites back to back and each fixture that bound them would
+##   clash.
+##
+## Ports: MQTT 1904 / gRPC 5381 / HTTP 6068 — this fixture owns them
+## instead of sharing the harness-wide 1883 / 5363 / 6060. The harness
+## health-probes `--addr`, which a config file cannot change; what makes an
+## own port work is `TestCase::broker_addr()` in
+## tests/functional/issue532_connect_ramp_stall.rs, which has the scheduler
+## retarget the probe at 1904 while the `{suite}@issue532-ramp` sub-suite
+## runs. Moving this listener therefore means changing that constant too.
+##
+## All three are free: the highest MQTT port in use elsewhere is 1903
+## (flapping-order), the highest gRPC port 5380 (flapping-order), the HTTP
+## API elsewhere 6060 (harness), 6061 (cluster stress node 1), 6066
+## (flapping), 6067 (flapping-order) and 6070 (session-sled-stress).
+##
+## Usage (run from the rmqtt repository root so that `plugins.dir` resolves
+## correctly). Neither --config nor --addr is needed: the case declares
+## both, and the scheduler switches them at the sub-suite boundary.
+##   target/release/mqtt_harness \
+##     --binary target/release/rmqttd \
+##     --workspace . \
+##     --suites functional_v5 --workers 1 \
+##     --test issue532
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+node.id = 1
+# Off: the handshake overload check (`scx.node.sys_is_busy()`) can refuse a
+# CONNECT with "the system is currently overloaded"; this case must fail
+# (or hang) for the reason under test, never for that one.
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+# 0 = derive the busy threshold from the listener's handshaking limit.
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## Log — file sink, see the header (the harness never drains the pipes)
+##--------------------------------------------------------------------
+log.to = "file"
+log.level = "info"
+log.dir = "target/rmqtt-test-logs"
+log.file = "issue532-ramp.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+# Self-contained: plugin configs live in this directory's plugins/ sub-dir.
+plugins.dir = "rmqtt-test/configs/issue532-ramp/plugins/"
+plugins.default_startups = [
+    "rmqtt-sys-topic",
+    "rmqtt-http-api",
+]
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter"]
+
+##--------------------------------------------------------------------
+## RPC (port avoids every gRPC port used elsewhere, see the header)
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5381"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Listener — external TCP only; MQTT 1904 (see the header)
+##--------------------------------------------------------------------
+listener.tcp.external.addr = "127.0.0.1:1904"
+listener.tcp.external.workers = 8
+# Far above the ramp's concurrency on purpose (see the header).
+listener.tcp.external.max_connections = 4096
+# The pool this case saturates (see the header). Not a typo.
+listener.tcp.external.max_handshaking_limit = 2
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1MB"
+listener.tcp.external.backlog = 1024
+# Anonymous access: the ramp must not depend on credentials.
+listener.tcp.external.allow_anonymous = true
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled (would clash with other suites)
+##--------------------------------------------------------------------
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false

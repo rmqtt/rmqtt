@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use rmqtt_codec::error::{DecodeError, EncodeError, HandshakeError, ProtocolError, SendPacketError};
 use rmqtt_codec::v5::{DisconnectReasonCode, PublishAckReason, ToReasonCode};
 
+use crate::Error;
+
 #[derive(Deserialize, Serialize, Debug, Clone, thiserror::Error)]
 pub enum MqttError {
     /// Handshake error
@@ -49,6 +51,15 @@ pub enum MqttError {
     TooManySubscriptions,
     #[error("too many topic levels")]
     TooManyTopicLevels,
+    /// A PUBLISH used an invalid Topic Alias: either an alias that was never
+    /// established on this connection, or one greater than the Topic Alias Maximum
+    /// the Server advertised in its CONNACK.
+    ///
+    /// MQTT 5.0 defines a Reason Code for exactly those conditions — 0x94 Topic Alias
+    /// invalid — so it is reported as `TopicAliasInvalid` rather than as the generic
+    /// 0x83 Implementation specific error. See `ToReasonCode` below.
+    #[error("topic alias {0} is invalid on this connection")]
+    TopicAliasInvalid(NonZeroU16),
     #[error("subscription limit reached, {0}")]
     SubscribeLimited(String),
     #[error("identifier rejected")]
@@ -57,6 +68,30 @@ pub enum MqttError {
     PacketIdInUse(NonZeroU16),
     #[error("Is None")]
     None,
+}
+
+/// The packet exceeds the Maximum Packet Size declared by the peer ([MQTT-3.1.2-24]).
+///
+/// For an Application Message this condition is **not** fatal: section 3.1.2.11.4 requires the
+/// Server to "discard it without sending it and then behave as if it had completed sending that
+/// Application Message" ([MQTT-3.1.2-25]). Callers must therefore downgrade it instead of
+/// propagating it as a connection error.
+#[inline]
+pub fn is_over_max_packet_size(err: &Error) -> bool {
+    #[inline]
+    fn over(e: &EncodeError) -> bool {
+        matches!(e, EncodeError::OverMaxPacketSize { .. })
+    }
+
+    if let Some(e) = err.downcast_ref::<MqttError>() {
+        return match e {
+            MqttError::Encode(e) => over(e),
+            MqttError::SendPacket(SendPacketError::Encode(e)) => over(e),
+            _ => false,
+        };
+    }
+    // With `send_timeout` set to zero the encoder error is not wrapped, see `stream::send`.
+    err.downcast_ref::<EncodeError>().is_some_and(over)
 }
 
 impl ToReasonCode for MqttError {
@@ -76,6 +111,7 @@ impl ToReasonCode for MqttError {
             MqttError::InvalidProtocol => DisconnectReasonCode::ProtocolError,
             MqttError::TooManySubscriptions => DisconnectReasonCode::QuotaExceeded,
             MqttError::TooManyTopicLevels => DisconnectReasonCode::TopicNameInvalid,
+            MqttError::TopicAliasInvalid(_) => DisconnectReasonCode::TopicAliasInvalid,
             MqttError::SubscribeLimited(_) => DisconnectReasonCode::QuotaExceeded,
             MqttError::IdentifierRejected => DisconnectReasonCode::NotAuthorized,
             MqttError::PacketIdInUse(_) => DisconnectReasonCode::UnspecifiedError,

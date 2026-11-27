@@ -1,0 +1,89 @@
+##--------------------------------------------------------------------
+## rmqttd config for the offline-queue cap suite (max_mqueue_len)
+##
+## Purpose: `max_mqueue_len` is the per-session offline queue cap. The queue
+## rejects the *newest* message once full (`rmqtt/src/queue.rs::push` returns
+## `Err(v)`), i.e. the cap is drop-newest, not a ring buffer. No test asserted
+## that, so this fixture pins a 3-message cap and the suite verifies exactly
+## which payloads survive.
+##
+## No plugin is started: the queue is core. `rmqtt-message-storage` is
+## deliberately absent so nothing can replay the dropped messages.
+##
+## Ports: MQTT 1933 / gRPC 5403 — this fixture owns them; nothing else in
+## `rmqtt-test/configs` uses them (highest elsewhere: MQTT 1925, gRPC 5395).
+## `TestCase::broker_config()` + `TestCase::broker_addr()` in the matching
+## test module make the scheduler switch to this config and probe 1933.
+##
+## `plugins.dir` / `log.dir` carry placeholders: `tests::fixture_config()`
+## copies this directory into `target/test-fixtures/plugin-queue-limits/` and substitutes the absolute
+## paths, so the fixture works regardless of the process working directory.
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+node.id = 1
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## Log
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "@@LOG_DIR@@"
+log.file = "plugin-queue-limits.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+plugins.dir = "@@PLUGINS_DIR@@"
+plugins.default_startups = []
+## `rmqtt-http-api` also declares `default_startup = true` in
+## `rmqtt-bin/Cargo.toml`; it must be off here or it binds 0.0.0.0:6060
+## (the harness-wide HTTP port) in a fixture that never asked for it.
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter", "rmqtt-http-api"]
+
+##--------------------------------------------------------------------
+## RPC
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5403"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Listener (external TCP only)
+##--------------------------------------------------------------------
+listener.tcp.external.addr = "127.0.0.1:1933"
+listener.tcp.external.workers = 8
+listener.tcp.external.max_connections = 1024000
+listener.tcp.external.max_handshaking_limit = 500
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1MB"
+listener.tcp.external.backlog = 1024
+listener.tcp.external.allow_anonymous = true
+## Queue cap under test. `mqueue_rate_limit` is left at a value that cannot
+## throttle the (tiny) test burst, so the case observes the length cap only.
+listener.tcp.external.max_mqueue_len = 3
+listener.tcp.external.mqueue_rate_limit = "1000,1s"
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled (would clash with other suites)
+##--------------------------------------------------------------------
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false

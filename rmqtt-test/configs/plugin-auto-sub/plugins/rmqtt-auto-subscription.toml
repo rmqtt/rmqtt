@@ -1,0 +1,7 @@
+## Two rules, one per placeholder under test. QoS 1 so a delivery that only
+## happens at QoS 0 would still be visible (the suite asserts the granted
+## subscription really exists, not just that a message arrived).
+subscribes = [
+    { topic_filter = "as/${clientid}/#", qos = 1 },
+    { topic_filter = "asu/${username}/#", qos = 1 },
+]

@@ -44,7 +44,7 @@ pub struct Inner {
 | `--plugins-default-startups` | `plugins_default_startups` | `Option<Vec<String>>` | `None` |
 | `--node-grpc-addrs` | `node_grpc_addrs` | `Option<Vec<NodeAddr>>` | `None` |
 | `--raft-peer-addrs` | `raft_peer_addrs` | `Option<Vec<NodeAddr>>` | `None` |
-| `--raft-leader-id` | `raft_leader_id` | `Option<NodeId>` (u64) | `None` | Specify a leader node ID. Intended for single-host pseudo-cluster dev/testing (0 = auto-select first node in config). Overrides `leader_id` in plugin config |
+| `--raft-leader-id` | `raft_leader_id` | `Option<NodeId>` (u64) | `None` | Bootstrap hint: which node bootstraps a new Raft cluster. `0` = no designated bootstrapper; pin the same fixed ID (present in `raft_peer_addrs`) on every node for parallel cold starts. Overrides `leader_id` in plugin config |
 
 ### `Task` — executor config
 
@@ -142,11 +142,12 @@ Fields via `Deref<Target = ListenerInner>`:
 | `key` | `Option<String>` | `None` | TLS key file path |
 | `client_ca_certs` | `Option<String>` | `None` | Client CA cert file |
 | `limit_subscription` | `bool` | `false` | Enable subscription limit |
-| `delayed_publish` | `bool` | `false` | Enable delayed publish |
 | `proxy_protocol` | `bool` | `false` | Enable PROXY protocol v1/v2 |
 | `proxy_protocol_timeout` | `Duration` | `5s` | PROXY header read timeout |
 | `cert_cn_as_username` | `bool` | `false` | Use TLS CN as username |
 | `cert_subject_dn_as_username` | `bool` | `false` | Use TLS subject DN as username |
+| `cert_spiffe_as_username` | `bool` | `false` | Use the SPIFFE ID (URI SAN) as username; takes precedence over CN/DN |
+| `cert_spiffe_username_format` | `SpiffeUsernameFormat` | `Uri` | `Uri` / `Path` / `Name` — how the SPIFFE ID is projected onto the username |
 | `collect_cert_info` | `bool` | `false` | Collect TLS cert info |
 | `idle_timeout` | `Duration` | `90s` | QUIC idle timeout |
 
@@ -174,9 +175,9 @@ Config files are loaded from `{plugins.dir}/{name}.toml`. Env prefix: `rmqtt_plu
 
 | Field | Type | Default |
 |-------|------|---------|
-| `delayed_publish_max` | `usize` | `100_000` |
-| `delayed_publish_immediate` | `bool` | `true` |
 | `max_sessions` | `isize` | `0` (unlimited) |
+
+> Delayed publish options (`delayed_publish_max` / `delayed_publish_immediate`) moved to the `rmqtt-delayed` plugin config (`rmqtt-delayed.toml`, keys `publish_max` / `publish_immediate`).
 
 ### Config loading priority
 

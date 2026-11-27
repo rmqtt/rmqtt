@@ -124,16 +124,20 @@ raft_peer_addrs = ["1@127.0.0.1:6003", "2@127.0.0.1:6004", "3@127.0.0.1:6005"]
 #If this listening address is not specified, the address of the node corresponding to `raft_peer_addrs` will be used.
 #laddr = "0.0.0.0:6003"
 
-# Specify the leader node ID.
+# Specify the node that bootstraps a brand-new Raft cluster (bootstrap hint).
 #
-# This option is primarily intended for single-host pseudo-cluster deployments,
-# where multiple cluster nodes run on the same machine for testing or development.
+# 0 (default) = no designated bootstrapper. Each node probes its peers once at
+# startup; if no leader is reachable yet, it bootstraps its own single-node
+# cluster. Starting all nodes in parallel (Kubernetes StatefulSet with
+# podManagementPolicy: Parallel, docker compose up, whole-cluster restart) can
+# therefore create independent clusters that never merge.
 #
-# In a real distributed cluster, leader election is performed automatically and
-# this option is typically unnecessary.
-#
-# When the value is 0 or not specified, the first node in the cluster
-# configuration will be designated as the Leader.
+# For parallel/cold starts, pin this on EVERY node to the same fixed ID that
+# exists in `raft_peer_addrs` (e.g. leader_id = 1), or pass the same
+# `--raft-leader-id 1` to every process. The pinned node bootstraps; the
+# others poll for a live leader (60 rounds x 500 ms = ~30 s) and join it.
+# Once a cluster exists, leadership may move freely: this value is only a
+# bootstrap hint (see #417 / #418).
 #
 # It can also be overridden via the CLI flag `--raft-leader-id`.
 #
@@ -190,7 +194,7 @@ raft.priority = 0
 
 - `'laddr'` specifies the Raft listening address. If not specified, it will default to the address configured in `'raft_peer_addrs'`.
 
-- `'leader_id'` specifies a leader node ID. This option is primarily intended for single-host pseudo-cluster deployments where multiple cluster nodes run on the same machine for testing or development. In a real distributed cluster, leader election is performed automatically and this option is typically unnecessary. When the value is 0 or not specified, the first node in the cluster configuration will be designated as the Leader. It can also be overridden via the CLI flag `--raft-leader-id`.
+- `'leader_id'` is a **bootstrap hint**: it names the node that bootstraps a brand-new cluster. With the default `0` there is no designated bootstrapper — each node probes its peers once at startup and, if no leader is reachable, bootstraps its own single-node cluster. On parallel cold starts this can create independent clusters that never merge. Pin the same fixed ID (present in `'raft_peer_addrs'`) on every node, or pass the same `--raft-leader-id` to every process; see the *Parallel cold starts* section below. Once a cluster exists, leadership may move freely.
 
 - `'compression'` specifies an algorithm for compressing snapshots. Possible values are: `zstd`, `lz4`, `zlib`, 
    and `snappy`. If not set, no compression will be performed.
@@ -230,3 +234,71 @@ plugins.default_startups = [
     "rmqtt-http-api"
 ]
 ```
+
+### Parallel cold starts (Kubernetes StatefulSet)
+
+With the default `leader_id = 0`, starting all replicas at once
+(`podManagementPolicy: Parallel`, `docker compose up`, or a whole-cluster
+restart) can leave several nodes each bootstrapping its own single-node Raft
+group, because none of them can reach a leader yet. Those groups never merge,
+so messages are not forwarded between them — see
+[issue #550](https://github.com/rmqtt/rmqtt/issues/550).
+
+For parallel starts, pin the **same** fixed ID on every replica and make sure
+that ID exists in `raft_peer_addrs`. The minimal StatefulSet below derives the
+node ID from the pod ordinal (`+1` because `0` is the "no designated
+bootstrapper" sentinel) and pins node `1`:
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rmqtt
+spec:
+  serviceName: rmqtt-raft        # headless Service: stable per-pod DNS
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: { app: rmqtt }
+  template:
+    metadata:
+      labels: { app: rmqtt }
+    spec:
+      containers:
+        - name: rmqtt
+          image: rmqtt/rmqtt:<version>  # replace with your rmqtt version
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              ordinal=${HOSTNAME##*-}
+              id=$((ordinal + 1))
+              exec /app/rmqtt/rmqtt-bin/rmqttd \
+                --id "$id" \
+                --plugins-default-startups "rmqtt-cluster-raft" \
+                --node-grpc-addrs "1@rmqtt-0.rmqtt-raft:5363" "2@rmqtt-1.rmqtt-raft:5363" "3@rmqtt-2.rmqtt-raft:5363" \
+                --raft-peer-addrs "1@rmqtt-0.rmqtt-raft:6003" "2@rmqtt-1.rmqtt-raft:6003" "3@rmqtt-2.rmqtt-raft:6003" \
+                --raft-leader-id 1
+```
+
+Notes:
+
+- Create a headless Service (`clusterIP: None`) named `rmqtt-raft` (not shown);
+  it gives each pod a stable DNS name, so all replicas can use the same ports.
+  Keep the two address lists identical on every replica; only `--id` is derived
+  per pod, and `replicas` must match the number of entries in both lists. If
+  the pinned ID is missing from `raft_peer_addrs`, plugin startup fails with
+  `Leader does not exist`.
+- Nodes other than the pinned one poll for a live leader for 60 rounds x
+  500 ms (~30 s). If pod `rmqtt-0` is slower than that (image pull, PVC attach),
+  those pods fail plugin initialization and must be restarted by the
+  orchestrator. `podManagementPolicy: OrderedReady` (the default) starts pod-0
+  first, so pods 1/2 begin only after pod-0 is running and the wait has to cover
+  just the bootstrap itself.
+- A non-zero `leader_id` is only a bootstrap hint. Once the cluster exists,
+  Raft may elect any node, and a restarted node joins whoever is leader at that
+  moment (see [#417](https://github.com/rmqtt/rmqtt/issues/417) /
+  [#418](https://github.com/rmqtt/rmqtt/pull/418)). Passing
+  `--raft-leader-id 0` explicitly restores the unpinned behaviour.
+- `--plugins-default-startups` above enables only the Raft plugin for brevity;
+  in production list all required plugins in `rmqtt.toml`'s
+  `plugins.default_startups` instead.

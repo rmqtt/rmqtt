@@ -1,5 +1,5 @@
 /* ============================================================
-   RMQTT Dashboard — 消息流入/流出速率面板（迷你条形图 + 累计统计）
+   RMQTT Dashboard — message in/out rate panel (mini bar chart + cumulative stats)
    ============================================================ */
 ;(function() {
   'use strict';
@@ -15,14 +15,14 @@
   function formatSeries(values) {
     // values: [{t: timestamp, v: rate, c: count}, ...]
     var raw = (values || []).slice(-30);
-    // 跳过最前面 1 根（初始差值可能包含历史累计，不可靠）
+    // Skip the very first bar (its initial delta may include historic totals and is unreliable)
     raw = raw.slice(1);
     var arr = [];
     var padCount = 30 - raw.length;
     for (var p = 0; p < padCount; p++) arr.push({ t: 0, v: 0, c: 0 });
     for (var r = 0; r < raw.length; r++) arr.push(raw[r]);
 
-    // 只从真实数据中取 max，排除填充零
+    // Take max from real data only, ignore the zero padding
     var vals = raw.map(function(d) { return d.v; });
     var max = vals.length > 0 ? Math.max.apply(null, vals) : 1;
     if (max <= 0) max = 1;
@@ -56,7 +56,7 @@
   }
 
   /**
-   * @param {HTMLElement} dom - 挂载 DOM 元素
+   * @param {HTMLElement} dom - element to mount on
    */
   window.MsgRatePanel = function(dom) {
     this._dom = dom;
@@ -97,7 +97,7 @@
     this._statTexts = dom.querySelectorAll('.stat-text');
     this._ttEl = dom.querySelector('#msgRateTt');
 
-    // 委托 mouse 事件到整个面板
+    // Delegate mouse events to the whole panel
     var self = this;
     dom.addEventListener('mouseover', function(e) { self._onBarHover(e); });
     dom.addEventListener('mouseout', function(e) { self._onBarLeave(e); });
@@ -118,7 +118,7 @@
     this._ttEl.innerHTML = fmtTime(+ts) + '<br>' + count;
     this._ttEl.style.display = 'block';
 
-    // 将 tooltip 定位到 bar 上方
+    // Position the tooltip above the bar
     var rect = bar.getBoundingClientRect();
     var cardRect = this._dom.getBoundingClientRect();
     var top = rect.top - cardRect.top - 6;

@@ -1,0 +1,33 @@
+##--------------------------------------------------------------------
+## rmqtt-session-storage
+##--------------------------------------------------------------------
+
+##sled, redis, redis-cluster
+storage.type = "sled"
+
+##sled
+# Test-only override: persist under the config dir (git-ignored runtime
+# state) so the storage survives broker restarts and does not touch
+# /var/log/rmqtt (unwritable in CI). Relative to the repo root where
+# rmqttd is launched. `{node}` is replaced with node.id (here: 1).
+storage.sled.path = "rmqtt-test/configs/session-sled/.sled/session/{node}"
+storage.sled.cache_capacity = "3G"
+
+##redis
+storage.redis.url = "redis://127.0.0.1:6379/"
+storage.redis.prefix = "session-{node}"
+
+##redis-cluster
+storage.redis-cluster.urls = ["redis://127.0.0.1:6380/", "redis://127.0.0.1:6381/", "redis://127.0.0.1:6382/"]
+storage.redis-cluster.prefix = "session-{node}"
+
+##─── Backend timeout (circuit breaker) ──────────────────────────────────────
+##All circuit-breaker parameters (failure rate, window, etc.) are inherited
+##from the global `[circuit_breaker]` section in `rmqtt.toml`.
+##Only the backend operation timeout can be overridden here.
+
+##Backend storage operation timeout. If a storage call (Sled/Redis)
+##exceeds this duration it is aborted and counted as a failure by the
+##circuit breaker. Set to "0s" to disable.
+##Default: "15s"
+#backend_timeout = "15s"

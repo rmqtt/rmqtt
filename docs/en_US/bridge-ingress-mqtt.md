@@ -95,7 +95,8 @@ concurrent_client_limit = 5
 connect_timeout = "20s"
 # Keepalive interval
 keepalive = "60s"
-# Auto-reconnect interval
+# Auto-reconnect interval (also the initial interval of the exponential
+# backoff used when the peer refuses a subscription)
 reconnect_interval = "5s"
 # Message expiry interval, 0 means no expiry
 expiry_interval = "5m"

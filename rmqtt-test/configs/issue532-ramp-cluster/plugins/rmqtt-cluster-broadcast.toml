@@ -1,0 +1,42 @@
+##--------------------------------------------------------------------
+## rmqtt-cluster-broadcast — issue #532 cluster fixture (shared by nodes 1-3)
+##--------------------------------------------------------------------
+## The three-node broadcast cluster of the report: every node carries the
+## whole membership list and skips its own entry (rmqtt-cluster-broadcast
+## `ClusterPlugin::new`), so one file serves all three nodes. `node_grpc_addrs`
+## must match `rpc.server_addr` in `nodeN/rmqtt.toml`:
+##   node 1 -> 5382, node 2 -> 5383, node 3 -> 5384.
+##
+## `node_grpc_client_timeout` is the per-request timeout of the fan-out
+## (`MessageBroadcaster`), i.e. how long a publish on one node can wait for a
+## peer's answer before it gives up — the reporter's value (15s) is kept so the
+## run reproduces the incident's *timing* as well as its shape.
+##
+## `task_exec_queue_workers` / `task_exec_queue_max` size the `BC_EXEC` queue
+## that serves the cluster's synchronous operations (kick / online /
+## subscriptions / session_status). It is not on this case's hot path (those
+## run on session takeover and on the management API, not on a plain connect or
+## publish), so the values are modest rather than tuned.
+##
+## See more keys: https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/cluster-broadcast.md
+
+#grpc message type
+message_type = 98
+
+#Node ID @ gRPC address for every member of the cluster.
+node_grpc_addrs = ["1@127.0.0.1:5382", "2@127.0.0.1:5383", "3@127.0.0.1:5384"]
+
+#Maximum number of messages sent in batch
+node_grpc_batch_size = 128
+
+##Client concurrent request limit
+node_grpc_client_concurrency_limit = 128
+
+##Connect and send to server timeout
+node_grpc_client_timeout = "15s"
+
+##Task execution queue workers
+task_exec_queue_workers = 8
+
+##Task execution queue max capacity
+task_exec_queue_max = 1024

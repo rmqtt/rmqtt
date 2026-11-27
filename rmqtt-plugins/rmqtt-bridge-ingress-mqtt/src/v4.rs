@@ -8,7 +8,6 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::anyhow;
 use futures::channel::mpsc;
@@ -16,7 +15,6 @@ use futures::StreamExt;
 use ntex::connect::rustls::TlsConnector;
 use ntex::connect::Connector;
 use ntex::service::fn_service;
-use ntex::time;
 use ntex::time::Seconds;
 use ntex::util::ByteString;
 use ntex::util::Bytes;
@@ -34,7 +32,7 @@ use rmqtt::{
 use crate::bridge::{
     build_tls_connector, BridgeClient, BridgePublish, Command, CommandMailbox, OnMessageEvent,
 };
-use crate::config::Bridge;
+use crate::config::{Bridge, INACTIVE_REMINDER_INTERVAL, MAX_SUBSCRIBE_ATTEMPTS, MAX_SUBSCRIBE_BACKOFF};
 
 enum MqttConnector {
     Tcp(v3::client::MqttConnector<String, Connector<String>>),
@@ -209,6 +207,18 @@ impl Client {
         log::info!("{} Exit 'rmqtt-bridge-ingress-mqtt' client", client.client_id);
     }
 
+    /// Subscribes to `topic_filter`, retrying a refusal on a bounded backoff.
+    ///
+    /// MQTT 3.1.1 answers a refusal with a bare `0x80` and no reason, so a
+    /// permanent denial (the peer's ACL, a filter it will not grant) cannot be
+    /// told apart from a transient one (the peer is still loading its rules).
+    /// Giving up immediately strands the entry until an unrelated reconnect
+    /// (issue #540), while the old fixed five-second cadence retried it forever
+    /// and hid the problem; a refusal is therefore retried on an exponentially
+    /// growing backoff, at most [`MAX_SUBSCRIBE_ATTEMPTS`] times per connection,
+    /// and reported at `warn`/`error` either way. Once given up on, the entry is
+    /// [`remind_inactive`]d about until the connection goes away. A reconnect
+    /// starts over.
     async fn subscribe(
         self,
         sink: v3::MqttSink,
@@ -216,29 +226,87 @@ impl Client {
         qos: v3::QoS,
         client_id: ByteString,
     ) {
-        'subscribe: loop {
+        let max_attempts = MAX_SUBSCRIBE_ATTEMPTS;
+        let mut attempt = 1;
+        let mut backoff = self.cfg.reconnect_interval;
+        loop {
             match sink.subscribe().topic_filter(topic_filter.clone(), qos).send().await {
                 Ok(rets) => {
-                    for ret in rets {
-                        if let SubscribeReturnCode::Failure = ret {
-                            log::info!("{client_id} Subscribe failure, topic_filter: {topic_filter:?}");
-                            time::sleep(Duration::from_secs(5)).await;
-                            continue 'subscribe;
-                        } else {
-                            log::info!("{client_id} Successfully subscribed to {topic_filter:?}",);
-                        }
+                    if rets.iter().all(|ret| !matches!(ret, SubscribeReturnCode::Failure)) {
+                        log::info!("{client_id} Successfully subscribed to {topic_filter:?}",);
+                        return;
                     }
-                    break;
+                    if attempt >= max_attempts {
+                        let why = format!(
+                            "the peer answered SUBACK with a failure code on all {attempt} \
+                             attempts, so nothing this entry should forward is delivered"
+                        );
+                        log::error!(
+                            "{client_id} entry {topic_filter:?} stays inactive until the bridge \
+                             reconnects: {why} (issue #540)"
+                        );
+                        self.remind_inactive(sink, topic_filter, why).await;
+                        return;
+                    }
+                    log::warn!(
+                        "{client_id} Subscribe refused by the peer, topic_filter: \
+                         {topic_filter:?}: SUBACK carried a failure code (MQTT 3.1.1 has no \
+                         reason to report); retrying in {backoff:?} (attempt \
+                         {attempt}/{max_attempts})"
+                    );
                 }
                 Err(SendPacketError::Disconnected) => {
                     log::info!("{client_id} Subscribe error, Disconnected");
-                    break;
+                    return;
                 }
                 Err(e) => {
-                    log::info!("{client_id} Subscribe error, {e}");
-                    break;
+                    if attempt >= max_attempts {
+                        let why = format!("{attempt} subscribe attempts failed, last error: {e}");
+                        log::error!(
+                            "{client_id} entry {topic_filter:?} stays inactive until the bridge \
+                             reconnects: {why} (issue #540)"
+                        );
+                        self.remind_inactive(sink, topic_filter, why).await;
+                        return;
+                    }
+                    log::warn!(
+                        "{client_id} Subscribe to {topic_filter:?} failed ({e}); retrying in \
+                         {backoff:?} (attempt {attempt}/{max_attempts})"
+                    );
                 }
             }
+            ntex::time::sleep(backoff).await;
+            if self.is_closed() {
+                log::info!(
+                    "{client_id} Stopped retrying the subscription to {topic_filter:?}, the \
+                     bridge is closing"
+                );
+                return;
+            }
+            attempt += 1;
+            backoff = (backoff * 2).min(MAX_SUBSCRIBE_BACKOFF);
+        }
+    }
+
+    /// After a subscription is given up on, repeats on every
+    /// [`INACTIVE_REMINDER_INTERVAL`] that the entry is still inactive, for as
+    /// long as THIS connection stays up: the one-time `error` at give-up is easy
+    /// to miss in a log that has been rolling for hours, and nothing else
+    /// reports the gap while the connection is healthy (issue #540). The
+    /// reminders end when the connection drops (`sink.is_open()`) or the bridge
+    /// closes; the reconnect then starts a fresh `subscribe`, which is also how
+    /// a since-fixed peer ACL or quota takes effect.
+    async fn remind_inactive(self, sink: v3::MqttSink, topic_filter: ByteString, why: String) {
+        loop {
+            ntex::time::sleep(INACTIVE_REMINDER_INTERVAL).await;
+            if self.is_closed() || !sink.is_open() {
+                return;
+            }
+            log::warn!(
+                "{} entry {topic_filter:?} is STILL inactive: {why} (issue #540); it is retried \
+                 when the bridge reconnects",
+                self.client_id
+            );
         }
     }
 

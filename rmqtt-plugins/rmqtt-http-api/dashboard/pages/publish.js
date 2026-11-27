@@ -1,5 +1,5 @@
 /* ============================================================
-   RMQTT Dashboard — 消息发布页
+   RMQTT Dashboard — message publish page
    ============================================================ */
 window.PublishPage = Vue.defineComponent({
   name: 'PublishPage',

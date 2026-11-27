@@ -239,15 +239,20 @@ async fn listen_tcp(scx: ServerContext, l: &Listener, lid: ListenerId) {
                         }
                     };
 
+                    // Every listener below has the same pair of arms: a refused
+                    // handshake is an expected outcome rather than a fault, so the
+                    // error `v5::process` / `v3::process` returns for it is logged
+                    // at `debug` here — a refusal adds nothing to the `info`
+                    // stream.
                     match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
                             if let Err(e) = v3::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv3 processing error: {e}, from: {remote_addr}");
+                                log::debug!("MQTTv3 processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Ok(MqttStream::V5(s)) => {
                             if let Err(e) = v5::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv5 processing error: {e}, from: {remote_addr}");
+                                log::debug!("MQTTv5 processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Err(e) => {
@@ -290,12 +295,12 @@ async fn listen_tls(scx: ServerContext, l: &Listener, lid: ListenerId) {
                     match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
                             if let Err(e) = v3::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv3/TLS processing error: {e}, from: {remote_addr}");
+                                log::debug!("MQTTv3/TLS processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Ok(MqttStream::V5(s)) => {
                             if let Err(e) = v5::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv5/TLS processing error: {e}, from: {remote_addr}");
+                                log::debug!("MQTTv5/TLS processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Err(e) => {
@@ -338,12 +343,12 @@ async fn listen_ws(scx: ServerContext, l: &Listener, lid: ListenerId) {
                     match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
                             if let Err(e) = v3::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv3/WS processing error: {e}, from: {remote_addr}");
+                                log::debug!("MQTTv3/WS processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Ok(MqttStream::V5(s)) => {
                             if let Err(e) = v5::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv5/WS processing error: {e}, from: {remote_addr}");
+                                log::debug!("MQTTv5/WS processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Err(e) => {
@@ -386,12 +391,12 @@ async fn listen_wss(scx: ServerContext, l: &Listener, lid: ListenerId) {
                     match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
                             if let Err(e) = v3::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv3/WSS processing error: {e}, from: {remote_addr}");
+                                log::debug!("MQTTv3/WSS processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Ok(MqttStream::V5(s)) => {
                             if let Err(e) = v5::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv5/WSS processing error: {e}, from: {remote_addr}");
+                                log::debug!("MQTTv5/WSS processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Err(e) => {
@@ -434,12 +439,12 @@ async fn listen_quic(scx: ServerContext, l: &Listener, lid: ListenerId) {
                     match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
                             if let Err(e) = v3::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv3/QUIC processing error: {e}, from: {remote_addr}");
+                                log::debug!("MQTTv3/QUIC processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Ok(MqttStream::V5(s)) => {
                             if let Err(e) = v5::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv5/QUIC processing error: {e}, from: {remote_addr}");
+                                log::debug!("MQTTv5/QUIC processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Err(e) => {

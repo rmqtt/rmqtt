@@ -539,4 +539,125 @@ mod tests {
         let topics: TopicTree<()> = postcard::from_bytes(&postcard::to_stdvec(&topics).unwrap()).unwrap();
         assert_eq!(val_size, topics.values_size());
     }
+
+    /// The values a topic name reaches, sorted, so a case can state the match set
+    /// directly instead of going through `match_one`'s accounting.
+    fn matched_values(topics: &TopicTree<NodeId>, name: &str) -> Vec<NodeId> {
+        let topic = Topic::from_str(name).unwrap();
+        let mut values = Vec::new();
+
+        for (_, vs) in topics.matches(&topic).iter() {
+            values.extend(vs.into_iter().copied());
+        }
+
+        values.sort_unstable();
+        values
+    }
+
+    /// [MQTT-4.7.2-1]: a filter that *begins* with a wildcard must not reach a topic
+    /// name that begins with `$`. `MatchedIter::prepare` is the only place the trie
+    /// applies that isolation, and nothing exercised it until now.
+    #[test]
+    fn dollar_name_is_out_of_reach_of_a_root_wildcard() {
+        let mut topics: TopicTree<NodeId> = TopicTree::default();
+        topics.insert(&Topic::from_str("#").unwrap(), 1);
+        topics.insert(&Topic::from_str("+/+").unwrap(), 2);
+        topics.insert(&Topic::from_str("+/name").unwrap(), 3);
+        topics.insert(&Topic::from_str("$SYS").unwrap(), 4);
+        topics.insert(&Topic::from_str("$SYS/#").unwrap(), 5);
+
+        // The `#` and `+` subscriptions sit in the tree and still reach nothing:
+        // only the two explicit `$SYS` filters answer, and `$SYS/#` covers the parent
+        // level the way any `x/#` does.
+        assert_eq!(matched_values(&topics, "$SYS"), vec![4, 5]);
+        assert_eq!(matched_values(&topics, "$SYS/a"), vec![5]);
+        assert_eq!(matched_values(&topics, "$SYS/a/b"), vec![5]);
+        // Without the isolation these two would also pick up 1, 2 and 3.
+        assert_eq!(matched_values(&topics, "a/b"), vec![1, 2]);
+    }
+
+    /// The isolation belongs to the first level only. A `$` level further down is an
+    /// ordinary level for the wildcards above it — the shape the Homie convention
+    /// publishes device state in (GitHub issue #537).
+    #[test]
+    fn dollar_level_below_the_root_is_reachable() {
+        let mut topics: TopicTree<NodeId> = TopicTree::default();
+        topics.insert(&Topic::from_str("#").unwrap(), 1);
+        topics.insert(&Topic::from_str("homie/+/$state").unwrap(), 2);
+        topics.insert(&Topic::from_str("homie/dev/#").unwrap(), 3);
+        topics.insert(&Topic::from_str("homie/dev/$state").unwrap(), 4);
+
+        assert_eq!(matched_values(&topics, "homie/dev/$state"), vec![1, 2, 3, 4]);
+        assert_eq!(matched_values(&topics, "homie/other/$state"), vec![1, 2]);
+        assert_eq!(matched_values(&topics, "homie/dev/plain"), vec![1, 3]);
+    }
+
+    /// A first level that is *empty* (a leading `/`) is not a `$` level, so the
+    /// isolation must not fire on it — the `!matches!(path[0], Level::Blank)` term of
+    /// the guard. The same name one level up *is* reserved.
+    #[test]
+    fn blank_first_level_is_not_treated_as_dollar() {
+        let mut topics: TopicTree<NodeId> = TopicTree::default();
+        topics.insert(&Topic::from_str("#").unwrap(), 1);
+        topics.insert(&Topic::from_str("+/b").unwrap(), 2);
+        topics.insert(&Topic::from_str("/a").unwrap(), 3);
+
+        assert_eq!(matched_values(&topics, "/a"), vec![1, 3]);
+        assert_eq!(matched_values(&topics, "/b"), vec![1, 2]);
+        // `$` in the second level is nothing special, and the leading blank keeps
+        // the root wildcard from being suppressed.
+        assert_eq!(matched_values(&topics, "/$x"), vec![1]);
+        // The same level in the first position is out of the wildcard's reach.
+        assert!(matched_values(&topics, "$x").is_empty());
+    }
+
+    /// `#` covers its parent level as well ([MQTT-4.7.1-2]), while `+` still demands
+    /// exactly one level.
+    #[test]
+    fn multi_wildcard_matches_the_parent_level() {
+        let mut topics: TopicTree<NodeId> = TopicTree::default();
+        topics.insert(&Topic::from_str("a/#").unwrap(), 1);
+        topics.insert(&Topic::from_str("a/+").unwrap(), 2);
+
+        assert_eq!(matched_values(&topics, "a"), vec![1]);
+        assert_eq!(matched_values(&topics, "a/b"), vec![1, 2]);
+        assert_eq!(matched_values(&topics, "a/b/c"), vec![1]);
+    }
+
+    /// Two subscribers on the same filter are two independent values, and removing
+    /// one leaves the other: the router keys its relations by filter, so a filter
+    /// that silently carried a single value would drop a client.
+    #[test]
+    fn same_filter_keeps_one_value_per_subscriber() {
+        let mut topics: TopicTree<NodeId> = TopicTree::default();
+        topics.insert(&Topic::from_str("a/#").unwrap(), 1);
+        topics.insert(&Topic::from_str("a/#").unwrap(), 2);
+
+        assert_eq!(matched_values(&topics, "a/b"), vec![1, 2]);
+        assert!(topics.remove(&Topic::from_str("a/#").unwrap(), &1));
+        assert_eq!(matched_values(&topics, "a/b"), vec![2]);
+        assert!(!topics.remove(&Topic::from_str("a/#").unwrap(), &1));
+    }
+
+    /// `$` inside a level is ordinary, and the isolation is decided by the *first*
+    /// level of the name alone: `$dev` at the root is out of a wildcard's reach even
+    /// though it is not literally `$SYS`, while a `$dev` one level down is not.
+    #[test]
+    fn dollar_inside_a_level_is_not_isolated() {
+        let mut topics: TopicTree<NodeId> = TopicTree::default();
+        topics.insert(&Topic::from_str("#").unwrap(), 1);
+        topics.insert(&Topic::from_str("homie/+/+").unwrap(), 2);
+        topics.insert(&Topic::from_str("homie/#").unwrap(), 3);
+        topics.insert(&Topic::from_str("homie/$dev/$state").unwrap(), 4);
+        topics.insert(&Topic::from_str("homie/dev$/sta$te").unwrap(), 5);
+        topics.insert(&Topic::from_str("$dev/state").unwrap(), 6);
+
+        // Below the root a metadata level is an ordinary level for the wildcards
+        // above it, `#` and `+` alike.
+        assert_eq!(matched_values(&topics, "homie/$dev/$state"), vec![1, 2, 3, 4]);
+        // A `$` inside a level is ordinary in every position.
+        assert_eq!(matched_values(&topics, "homie/dev$/sta$te"), vec![1, 2, 3, 5]);
+        // At the root the name is reserved whatever the `$` is attached to.
+        assert_eq!(matched_values(&topics, "$dev/state"), vec![6]);
+    }
 }

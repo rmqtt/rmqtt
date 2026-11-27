@@ -336,3 +336,91 @@ impl TestCase for UnsubscribeV311Test {
         Duration::from_secs(20)
     }
 }
+
+/// QoS negotiation: the QoS delivered to a subscriber is the minimum of the
+/// publish QoS and the subscription QoS. [MQTT-4.3.3-1] [MQTT-4.5.0-1]
+pub struct QosDowngradeV311Test;
+
+impl TestCase for QosDowngradeV311Test {
+    fn name(&self) -> &str {
+        "qos_downgrade_v311"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let result = rt.block_on(async {
+            let uid = uuid::Uuid::new_v4().simple().to_string();
+
+            // (publish QoS, subscription QoS, expected delivered QoS)
+            let scenarios: [(QoS, QoS, QoS, &str); 3] = [
+                (QoS::AtLeastOnce, QoS::AtMostOnce, QoS::AtMostOnce, "qos1-sub0"),
+                (QoS::ExactlyOnce, QoS::AtLeastOnce, QoS::AtLeastOnce, "qos2-sub1"),
+                (QoS::ExactlyOnce, QoS::AtMostOnce, QoS::AtMostOnce, "qos2-sub0"),
+            ];
+
+            for (pub_qos, sub_qos, expected_qos, label) in scenarios {
+                let topic = format!("test/downgrade/{label}/{uid}");
+                let pub_cid = format!("downgrade-pub-{label}-{uid}");
+                let sub_cid = format!("downgrade-sub-{label}-{uid}");
+
+                let publisher = crate::mqtt::v311::MqttV311Client::connect(
+                    &ctx.config.broker_addr,
+                    &pub_cid,
+                    ctx.config.connect_timeout,
+                )
+                .await?;
+                let mut subscriber = crate::mqtt::v311::MqttV311Client::connect(
+                    &ctx.config.broker_addr,
+                    &sub_cid,
+                    ctx.config.connect_timeout,
+                )
+                .await?;
+
+                subscriber.subscribe(&topic, sub_qos).await?;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+
+                if pub_qos == QoS::ExactlyOnce {
+                    // Complete the QoS 2 publisher-side handshake so the broker
+                    // does not hold a dangling in-flight state.
+                    let pid = std::num::NonZeroU16::new(1).expect("1 is non-zero");
+                    publisher
+                        .publish_with_packet_id(&topic, b"downgrade", pub_qos, false, false, pid)
+                        .await?;
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    let _ = publisher.send_pubrel(pid).await;
+                } else {
+                    publisher.publish(&topic, b"downgrade", pub_qos, false).await?;
+                }
+
+                let msg = subscriber.recv_message_timeout(Duration::from_secs(5)).await;
+
+                let _ = publisher.disconnect().await;
+                let _ = subscriber.disconnect().await;
+
+                match msg {
+                    Some(m) if m.qos == expected_qos => {}
+                    Some(m) => {
+                        return Err(anyhow::anyhow!(
+                            "{label}: expected delivered QoS {:?}, got {:?}",
+                            expected_qos,
+                            m.qos
+                        ))
+                    }
+                    None => return Err(anyhow::anyhow!("{label}: no message received")),
+                }
+            }
+            Ok(())
+        });
+
+        match result {
+            Ok(()) => TestResult::passed(self.name(), "functional_v311", start.elapsed()),
+            Err(e) => TestResult::failed(self.name(), "functional_v311", start.elapsed(), e.to_string()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(30)
+    }
+}

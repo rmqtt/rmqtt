@@ -2,7 +2,8 @@
 //!
 //! This module provides the `CertInfo` struct which holds X.509 certificate
 //! metadata extracted during TLS handshake, including the Common Name,
-//! subject distinguished name, serial number, and organization fields.
+//! subject distinguished name, serial number, organization fields, and the
+//! SPIFFE ID from the URI SAN.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -18,6 +19,13 @@ pub struct CertInfo {
     pub serial: Option<String>,
     /// Organization
     pub organization: Option<String>,
+    /// SPIFFE ID from the certificate URI SAN (e.g. `spiffe://example.com/user/barry`).
+    ///
+    /// `Some` only when the certificate carries exactly one URI SAN and its
+    /// scheme is `spiffe` with a non-empty trust domain; `None` when there is
+    /// no URI SAN, the URI is not a SPIFFE ID, or the SAN is ambiguous
+    /// (more than one URI SAN).
+    pub spiffe_id: Option<String>,
 }
 
 impl CertInfo {
@@ -29,6 +37,10 @@ impl CertInfo {
 
 impl fmt::Display for CertInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CN: {:?}, Subject: {}, Org: {:?}", self.common_name, self.subject, self.organization)
+        write!(
+            f,
+            "CN: {:?}, Subject: {}, Org: {:?}, Spiffe: {:?}",
+            self.common_name, self.subject, self.organization, self.spiffe_id
+        )
     }
 }

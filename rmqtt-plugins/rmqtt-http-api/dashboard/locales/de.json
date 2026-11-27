@@ -128,6 +128,7 @@
     "messages_publish": "Veröffentlichte Nachrichten",
     "messages_delivered": "Zugestellte Nachrichten",
     "messages_discarded": "Verworfene Nachrichten",
+    "offline_saves_dropped": "Verworfene Offline-Speicherungen",
     "subscriptions_count": "Abonnements",
     "shared_subscriptions_count": "Geteilte Abonnements",
     "status_title": "Status",
@@ -154,6 +155,7 @@
     "features_delayed": "Verzögerte Nachrichten",
     "features_shared_subscription": "Gemeinsame Abonnements",
     "features_auto_subscription": "Automatisches Abonnement",
+    "features_flapping": "Flapping-Schutz",
     "features_tab_title": "Funktionsunterstützung"
   },
   "gauge": {
@@ -302,7 +304,8 @@
     "dashboard": "Dashboard",
     "confirm": "Bestätigen",
     "cancel": "Abbrechen",
-    "confirm_title": "Bestätigung"
+    "confirm_title": "Bestätigung",
+    "copy": "Kopieren"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +355,43 @@
     "delete": "Löschen",
     "delete_confirm": "Retained-Message für Thema {topic} löschen?",
     "delete_fail": "Löschen fehlgeschlagen: {msg}"
+  },
+  "delayed": {
+    "not_enabled": "Verzögerte Veröffentlichung ist nicht aktiviert (laden Sie das Plugin rmqtt-delayed)",
+    "topic_filter_placeholder": "Topic-Filter (z. B. sensor/#, leer = alle)",
+    "topic": "Topic",
+    "delay_interval": "Verzögerungsintervall",
+    "fire_time": "Auslösezeitpunkt",
+    "remaining": "Verbleibend",
+    "client_id": "Client-ID",
+    "username": "Benutzername",
+    "payload_size": "Payload-Größe",
+    "node": "Knoten",
+    "payload": "Payload-Inhalt",
+    "not_found": "Nachricht wurde bereits ausgelöst oder existiert nicht mehr",
+    "no_results": "Keine verzögerten Veröffentlichungen",
+    "view_payload": "Payload ansehen"
+  },
+  "flapping": {
+    "not_enabled": "Flapping-Schutz ist nicht aktiviert (rmqtt-flapping-Plugin laden oder enable = true setzen)",
+    "node_local": "Sperren gelten nur lokal auf dem Knoten; diese Liste zeigt nur den antwortenden Knoten",
+    "banned_count": "Aktive Sperren",
+    "dimension": "Dimension",
+    "dimension_all": "Alle Dimensionen",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "Benutzername",
+    "dimension_peerhost": "Quelladresse",
+    "key": "Schlüssel",
+    "key_placeholder": "Schlüssel (exakter Treffer, z. B. ClientID / Benutzername / IP)",
+    "count": "Versuche",
+    "banned_at": "Gesperrt am",
+    "banned_until": "Gesperrt bis",
+    "remaining": "Verbleibend",
+    "last_clientid": "Letzte ClientID",
+    "last_ipaddress": "Letzte Quelladresse",
+    "unban": "Entsperren",
+    "unban_confirm": "Sperre für {dimension} „{key}“ aufheben?",
+    "unban_fail": "Entsperren fehlgeschlagen: {msg}",
+    "no_results": "Keine aktiven Sperren"
   }
 }

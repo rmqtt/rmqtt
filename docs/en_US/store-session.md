@@ -88,6 +88,40 @@ plugins.default_startups = [
 ]
 ```
 
+## Clearing the session store
+
+The following scenarios require wiping **all persisted session information**, so that the node does not restore stale
+subscriptions on start:
+
+- Tightening or revoking ACL rules (see [Built-in ACL](acl.md#changing-acl-rules)). Persisted subscriptions are
+  re-registered into the routing table when the node starts; without a wipe the revocation never takes effect and
+  messages queued while the client is offline are replayed on reconnect.
+- Forcing every client back to a session-less state (`session_present = 0`).
+
+**Stop the node before clearing.** A running node keeps writing session state back, so clearing while it runs has no
+effect.
+
+`sled` (default backend, one directory per node; `{node}` is `node.id`, `1` by default):
+
+```bash
+rm -rf /var/log/rmqtt/.cache/session/1
+```
+
+`redis` / `redis-cluster` (keys are prefixed with `storage.redis.prefix` / `storage.redis-cluster.prefix`):
+
+```bash
+# Sample first to confirm the prefix and key layout (prefix defaults to session-{node}, i.e. session-1 for node 1)
+redis-cli --scan --pattern 'session-1*' | head
+# Delete in batches to avoid long blocking; do NOT use KEYS / FLUSHDB
+redis-cli --scan --pattern 'session-1*' | xargs -r -n 100 redis-cli UNLINK
+```
+
+> Both `storage.sled.path` and the redis prefixes are configurable — use the values from your own configuration. In a
+> multi-node deployment, repeat this for every node.
+
+Impact of wiping: offline messages, inflight messages, subscription relationships and the `session_present` flag are
+all lost. Clients reconnect into a brand-new session and must subscribe again.
+
 
 
 

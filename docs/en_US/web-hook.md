@@ -117,7 +117,7 @@ Currently, the following events are supported:
 | session_subscribed  | Session subscribed | After the subscription operation is completed            |
 | session_unsubscribed| Session unsubscribed | After the unsubscription operation is completed          |
 | client_connect      | Handle CONNECT     | When the server receives a CONNECT packet from the client |
-| client_connack      | Send CONNACK       | When the server is ready to send a CONNACK packet         |
+| client_connack      | Send CONNACK       | Before the server sends a CONNACK — both when accepting and when refusing a connection        |
 | client_connected    | Client connected   | After the client has successfully authenticated and connected to the system |
 | client_disconnected | Connection closed  | When the client connection is being closed                |
 | client_subscribe    | Subscribe to topic | After receiving a SUBSCRIBE packet, before executing the ACL authorization |
@@ -245,6 +245,8 @@ opts include
 | clean_start   | bool    | Session clean start flag (MQTT 5.0)                 |
 | conn_ack      | string  | "Connection Accepted" if successful; otherwise, indicates the reason for failure |
 | time          | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
+
+Note: a refused connection raises this event as well, with `conn_ack` carrying the refusal reason. Only refusals that fail before the CONNECT packet is decoded — an undecodable packet, an overloaded node or a handshake timeout — are not reported.
 
 **client_connected**
 

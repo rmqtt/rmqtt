@@ -4259,15 +4259,16 @@ dependencies = [
 
 [[package]]
 name = "pulsar"
-version = "6.8.0"
+version = "6.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2784d3ed4cc69abf1257842f40b5ca89cfa2e6047912a9691193532c211ab13"
+checksum = "5a56d908fe26714fbd8dffbe6a69b39ea09fb28af14fdd8f971548d2906346b3"
 dependencies = [
  "async-channel 2.5.0",
  "async-native-tls",
  "async-std",
  "async-trait",
  "asynchronous-codec",
+ "base64 0.22.1",
  "bytes",
  "chrono",
  "crc",
@@ -4542,6 +4543,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rcgen"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75e669e5202259b5314d1ea5397316ad400819437857b90861765f24c4cf80a2"
+dependencies = [
+ "pem",
+ "ring",
+ "rustls-pki-types",
+ "time",
+ "yasna",
+]
+
+[[package]]
 name = "rdkafka"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4569,6 +4583,7 @@ dependencies = [
  "libc",
  "libz-sys",
  "num_enum",
+ "openssl-sys",
  "pkg-config",
 ]
 
@@ -4831,7 +4846,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4854,7 +4869,7 @@ dependencies = [
  "prometheus",
  "prost",
  "rand 0.9.5",
- "rmqtt-codec 0.2.2",
+ "rmqtt-codec",
  "rmqtt-macros",
  "rmqtt-net",
  "rmqtt-utils",
@@ -4875,7 +4890,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-acl"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4891,7 +4906,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-auth-http"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4908,7 +4923,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-auth-jwt"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4925,7 +4940,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-auto-subscription"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4938,7 +4953,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-kafka"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4957,7 +4972,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-mqtt"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4980,7 +4995,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-nats"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -4997,7 +5012,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-pulsar"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5014,7 +5029,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-reductstore"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5031,7 +5046,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-ingress-kafka"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5049,7 +5064,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-ingress-mqtt"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5071,7 +5086,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-ingress-nats"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -5090,7 +5105,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-ingress-pulsar"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5110,7 +5125,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-origin"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5124,7 +5139,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-cluster-broadcast"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5144,7 +5159,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-cluster-raft"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5176,25 +5191,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-codec"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8745926da934746acfe80d0fc57fdeb5ba303de32636f3e824ed7a87345d0b20"
-dependencies = [
- "bitflags 2.13.1",
- "bytes",
- "bytestring",
- "chrono",
- "log",
- "nonzero_ext",
- "rmqtt-utils",
- "serde",
- "thiserror 1.0.69",
- "tokio-util",
-]
-
-[[package]]
-name = "rmqtt-codec"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bitflags 2.13.1",
  "bytes",
@@ -5211,7 +5208,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-conf"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5221,7 +5218,7 @@ dependencies = [
  "config",
  "log",
  "once_cell",
- "rmqtt-codec 0.2.2",
+ "rmqtt-codec",
  "rmqtt-net",
  "rmqtt-utils",
  "serde",
@@ -5231,7 +5228,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-counter"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "async-trait",
  "log",
@@ -5239,8 +5236,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmqtt-delayed"
+version = "0.25.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "bytestring",
+ "log",
+ "rmqtt",
+ "rmqtt-codec",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "rmqtt-flapping"
+version = "0.25.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "bytestring",
+ "chrono",
+ "log",
+ "parking_lot 0.12.5",
+ "rmqtt",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
 name = "rmqtt-http-api"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5257,7 +5288,9 @@ dependencies = [
  "salvo",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "socket2 0.5.10",
+ "subtle",
  "tokio",
 ]
 
@@ -5272,7 +5305,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-message-storage"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5291,7 +5324,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-net"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "bytestring",
@@ -5301,7 +5334,7 @@ dependencies = [
  "once_cell",
  "proxy-protocol",
  "quinn",
- "rmqtt-codec 0.2.2",
+ "rmqtt-codec",
  "rustls",
  "serde",
  "simple_logger",
@@ -5316,7 +5349,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-p2p-messaging"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5329,7 +5362,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-plugins"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "rmqtt-acl",
  "rmqtt-auth-http",
@@ -5348,6 +5381,8 @@ dependencies = [
  "rmqtt-cluster-broadcast",
  "rmqtt-cluster-raft",
  "rmqtt-counter",
+ "rmqtt-delayed",
+ "rmqtt-flapping",
  "rmqtt-http-api",
  "rmqtt-message-storage",
  "rmqtt-p2p-messaging",
@@ -5433,7 +5468,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-retainer"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5450,7 +5485,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-session-storage"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5466,7 +5501,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-shared-subscription"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "async-trait",
  "log",
@@ -5505,7 +5540,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-sys-topic"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5529,13 +5564,23 @@ dependencies = [
  "clap",
  "futures",
  "parking_lot 0.12.5",
+ "pulsar",
+ "quinn",
  "rand 0.9.5",
- "rmqtt-codec 0.2.2",
+ "rcgen",
+ "rmqtt-codec",
+ "rmqtt-conf",
+ "rustls",
  "serde",
  "serde_json",
+ "socket2 0.5.10",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
  "tokio-util",
+ "tower",
+ "tower-resilience-circuitbreaker",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -5543,7 +5588,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-topic-rewrite"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5571,7 +5616,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-web-hook"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5593,7 +5638,7 @@ dependencies = [
 
 [[package]]
 name = "rmqttd"
-version = "0.23.1"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5618,6 +5663,8 @@ dependencies = [
  "rmqtt-cluster-raft",
  "rmqtt-conf",
  "rmqtt-counter",
+ "rmqtt-delayed",
+ "rmqtt-flapping",
  "rmqtt-http-api",
  "rmqtt-message-storage",
  "rmqtt-net",
@@ -6417,7 +6464,7 @@ dependencies = [
  "futures",
  "log",
  "quinn",
- "rmqtt-codec 0.2.2",
+ "rmqtt-codec",
  "rmqtt-net",
  "rustls",
  "simple_logger",
@@ -7041,8 +7088,12 @@ checksum = "8f72a05e828585856dacd553fba484c242c46e391fb0e58917c942ee9202915c"
 dependencies = [
  "futures-util",
  "log",
+ "rustls",
+ "rustls-pki-types",
  "tokio",
+ "tokio-rustls",
  "tungstenite",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -7372,6 +7423,8 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.9.5",
+ "rustls",
+ "rustls-pki-types",
  "sha1",
  "thiserror 2.0.20",
 ]
@@ -7904,6 +7957,15 @@ name = "xxhash-rust"
 version = "0.8.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aee1b19627c7c60102ab80d3a9cbe18de90bfe03bfa6c3715447681f0e8c8af6"
+
+[[package]]
+name = "yasna"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e17bb3549cc1321ae1296b9cdc2698e2b6cb1992adfa19a8c72e5b7a738f44cd"
+dependencies = [
+ "time",
+]
 
 [[package]]
 name = "yoke"

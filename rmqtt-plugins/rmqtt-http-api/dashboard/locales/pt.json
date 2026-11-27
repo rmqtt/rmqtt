@@ -128,6 +128,7 @@
     "messages_publish": "Mensagens publicadas",
     "messages_delivered": "Mensagens entregues",
     "messages_discarded": "Mensagens descartadas",
+    "offline_saves_dropped": "Salvamentos offline descartados",
     "subscriptions_count": "Inscrições",
     "shared_subscriptions_count": "Inscrições compartilhadas",
     "status_title": "Status",
@@ -154,6 +155,7 @@
     "features_delayed": "Mensagens atrasadas",
     "features_shared_subscription": "Assinaturas compartilhadas",
     "features_auto_subscription": "Assinatura automática",
+    "features_flapping": "Proteção contra flapping",
     "features_tab_title": "Suporte de recursos"
   },
   "gauge": {
@@ -302,7 +304,8 @@
     "dashboard": "Dashboard",
     "confirm": "Confirmar",
     "cancel": "Cancelar",
-    "confirm_title": "Confirmação"
+    "confirm_title": "Confirmação",
+    "copy": "Copiar"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +355,43 @@
     "delete": "Excluir",
     "delete_confirm": "Excluir a mensagem retida para o tópico {topic}?",
     "delete_fail": "Falha ao excluir: {msg}"
+  },
+  "delayed": {
+    "not_enabled": "A publicação atrasada não está ativada (carregue o plugin rmqtt-delayed)",
+    "topic_filter_placeholder": "Filtro de tópico (ex. sensor/#, vazio = todos)",
+    "topic": "Tópico",
+    "delay_interval": "Intervalo de atraso",
+    "fire_time": "Hora de disparo",
+    "remaining": "Restante",
+    "client_id": "ID do cliente",
+    "username": "Nome de usuário",
+    "payload_size": "Tamanho do payload",
+    "node": "Nó",
+    "payload": "Conteúdo do payload",
+    "not_found": "A mensagem já foi disparada ou não existe mais",
+    "no_results": "Nenhuma publicação atrasada",
+    "view_payload": "Ver Payload"
+  },
+  "flapping": {
+    "not_enabled": "A proteção contra flapping não está ativada (carregue o plugin rmqtt-flapping ou defina enable = true)",
+    "node_local": "Os bloqueios são locais do nó; esta lista reflete apenas o nó que respondeu",
+    "banned_count": "Bloqueios em vigor",
+    "dimension": "Dimensão",
+    "dimension_all": "Todas as dimensões",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "Nome de usuário",
+    "dimension_peerhost": "Endereço de origem",
+    "key": "Chave",
+    "key_placeholder": "Chave (correspondência exata, ex. ClientID / usuário / IP)",
+    "count": "Tentativas",
+    "banned_at": "Bloqueado em",
+    "banned_until": "Bloqueado até",
+    "remaining": "Restante",
+    "last_clientid": "Último ClientID",
+    "last_ipaddress": "Último endereço de origem",
+    "unban": "Desbloquear",
+    "unban_confirm": "Remover o bloqueio de {dimension} \"{key}\"?",
+    "unban_fail": "Falha ao desbloquear: {msg}",
+    "no_results": "Nenhum bloqueio em vigor"
   }
 }

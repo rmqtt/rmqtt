@@ -50,7 +50,13 @@ struct BridgeMqttIngressPlugin {
 impl BridgeMqttIngressPlugin {
     #[inline]
     async fn new(scx: ServerContext, name: &'static str) -> Result<Self> {
-        let cfg = Arc::new(RwLock::new(scx.plugins.read_config::<PluginConfig>(name)?));
+        let config = scx.plugins.read_config::<PluginConfig>(name)?;
+        // Fail fast: a mapping that can never produce a legal topic name turns
+        // into a malformed PUBLISH, and then into a reconnect-and-resend loop,
+        // once the bridge is up (issue #451). Refuse the configuration while it
+        // is read, so the operator gets the offending entry instead.
+        config.validate()?;
+        let cfg = Arc::new(RwLock::new(config));
         log::info!("{} BridgeMqttIngressPlugin cfg: {:?}", name, cfg.read().await);
         let register = scx.extends.hook_mgr().register();
         let bridge_mgr = BridgeManager::new(scx, cfg.clone());

@@ -12,6 +12,21 @@ rules = [
     ["allow", { user = "dashboard" }, "subscribe", ["$SYS/#"]],
     ["allow", { ipaddr = "127.0.0.1" }, "pubsub", ["$SYS/#", "#"]],
     ["deny", "all", "subscribe", ["$SYS/#", { eq = "#" }]],
+    ## The rule below OMITS the action column, which resolves to ALL operations,
+    ## INCLUDING CONNECT. This plugin also hooks ClientAuthenticate: with this
+    ## rule every connection is explicitly allowed, unless an earlier auth
+    ## plugin already returned 'deny'.
+    ##
+    ## IMPORTANT: a connection that a custom auth plugin (rmqtt-auth-http,
+    ## rmqtt-auth-jwt, ...) decided to 'ignore' — for example the auth service
+    ## returned a non-2xx status (404/500/502) — is allowed by this rule too,
+    ## EVEN when allow_anonymous = false.
+    ##
+    ## If you enable a custom auth plugin, comment out ["allow", "all"] and
+    ## enable ["deny", "all"] instead (fail-closed): only clients explicitly
+    ## allowed by the auth plugin can connect, and publish/subscribe must be
+    ## authorized by the auth plugin's ACL data or the allow rules above.
+    ## See docs/en_US/acl.md for details.
     ["allow", "all"]
     #["deny", "all"]
 ]

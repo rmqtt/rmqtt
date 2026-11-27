@@ -234,6 +234,7 @@ disconnected 事件消息的 Payload 解析成 JSON 格式如下:
     "messages.nonsubscribed.custom": 0,
     "messages.nonsubscribed.lastwill": 0,
     "messages.nonsubscribed.system": 0,
+    "messages.offline.saves.dropped": 0,
     "messages.publish": 0,
     "messages.publish.admin": 0,
     "messages.publish.custom": 0,

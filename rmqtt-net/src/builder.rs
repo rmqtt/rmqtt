@@ -142,8 +142,6 @@ pub struct Builder {
     pub max_topic_aliases: u16,
     /// Enable subscription count limiting
     pub limit_subscription: bool,
-    /// Enable future-dated message publishing
-    pub delayed_publish: bool,
 
     /// Enable mutual TLS authentication
     pub tls_cross_certificate: bool,
@@ -169,11 +167,76 @@ pub struct Builder {
     /// `OU=EnduranceUser,CN=alice`).
     pub cert_subject_dn_as_username: bool,
 
+    /// Use the SPIFFE ID (URI SAN) of the TLS client certificate as Username.
+    /// Takes precedence over `cert_subject_dn_as_username` /
+    /// `cert_cn_as_username` when the certificate carries exactly one
+    /// `spiffe://` URI SAN; certificates with more than one URI SAN are
+    /// never bound (the identity is ambiguous).
+    pub cert_spiffe_as_username: bool,
+
+    /// How the SPIFFE ID is projected onto the username. Only effective
+    /// when `cert_spiffe_as_username` is enabled; `Path` / `Name` drop the
+    /// trust domain and can collide across trust domains.
+    pub cert_spiffe_username_format: SpiffeUsernameFormat,
+
     /// Collect TLS Certificate information
     pub collect_cert_info: bool,
 
     /// QUIC(max_idle_timeout)
     pub idle_timeout: Duration,
+}
+
+/// How a SPIFFE ID taken from the client certificate's URI SAN is turned
+/// into an MQTT username (`cert_spiffe_username_format`).
+///
+/// The URI SAN is expected to carry a SPIFFE ID such as
+/// `spiffe://example.com/user/barry`. Dropping the trust domain
+/// (`Path` / `Name`) can collide across trust domains, so `Uri` is the
+/// default.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SpiffeUsernameFormat {
+    /// The full URI, e.g. `spiffe://example.com/user/barry`.
+    #[default]
+    Uri,
+    /// The URI path only, e.g. `/user/barry`.
+    Path,
+    /// The last non-empty path segment, e.g. `barry`.
+    Name,
+}
+
+impl SpiffeUsernameFormat {
+    /// Projects a SPIFFE ID onto a username according to this format.
+    ///
+    /// Returns `None` when the chosen projection has no usable value — an
+    /// empty or root (`/`) path for `Path` and `Name` — so the caller can
+    /// fall back to the next certificate-derived source.
+    #[inline]
+    pub fn apply(&self, spiffe_id: &str) -> Option<String> {
+        match self {
+            SpiffeUsernameFormat::Uri => Some(spiffe_id.to_owned()),
+            SpiffeUsernameFormat::Path => split_spiffe(spiffe_id)
+                .and_then(|(_, path)| (!path.is_empty() && path != "/").then(|| path.to_owned())),
+            SpiffeUsernameFormat::Name => split_spiffe(spiffe_id)
+                .and_then(|(_, path)| path.rsplit('/').find(|s| !s.is_empty()).map(|s| s.to_owned())),
+        }
+    }
+}
+
+/// Splits `spiffe://<trust-domain><path>` into `(trust_domain, path)`.
+///
+/// The scheme is matched case-insensitively (RFC 3986) and the trust domain
+/// must be non-empty; anything else yields `None`.
+#[inline]
+fn split_spiffe(spiffe_id: &str) -> Option<(&str, &str)> {
+    if spiffe_id.len() < 9 || !spiffe_id.as_bytes()[..9].eq_ignore_ascii_case(b"spiffe://") {
+        return None;
+    }
+    let rest = &spiffe_id[9..];
+    let (trust_domain, path) = match rest.find('/') {
+        Some(i) => (&rest[..i], &rest[i..]),
+        None => (rest, ""),
+    };
+    (!trust_domain.is_empty()).then_some((trust_domain, path))
 }
 
 impl Default for Builder {
@@ -231,7 +294,6 @@ impl Builder {
             max_topic_aliases: 0,
 
             limit_subscription: false,
-            delayed_publish: false,
 
             tls_cross_certificate: false,
             tls_cert: None,
@@ -242,6 +304,8 @@ impl Builder {
 
             cert_cn_as_username: false,
             cert_subject_dn_as_username: false,
+            cert_spiffe_as_username: false,
+            cert_spiffe_username_format: SpiffeUsernameFormat::default(),
             collect_cert_info: false,
 
             idle_timeout: Duration::from_secs(90),
@@ -431,12 +495,6 @@ impl Builder {
         self
     }
 
-    /// Enables delayed message publishing
-    pub fn delayed_publish(mut self, delayed_publish: bool) -> Self {
-        self.delayed_publish = delayed_publish;
-        self
-    }
-
     /// Enables mutual TLS authentication
     pub fn tls_cross_certificate(mut self, cross_certificate: bool) -> Self {
         self.tls_cross_certificate = cross_certificate;
@@ -471,6 +529,22 @@ impl Builder {
     /// Takes precedence over `cert_cn_as_username` when both are enabled.
     pub fn cert_subject_dn_as_username(mut self, v: bool) -> Self {
         self.cert_subject_dn_as_username = v;
+        self
+    }
+
+    /// Configures using the SPIFFE ID (URI SAN) of the TLS client certificate
+    /// as the MQTT username. Takes precedence over `cert_subject_dn_as_username`
+    /// / `cert_cn_as_username` when the certificate carries exactly one
+    /// `spiffe://` URI SAN.
+    pub fn cert_spiffe_as_username(mut self, v: bool) -> Self {
+        self.cert_spiffe_as_username = v;
+        self
+    }
+
+    /// Sets how the SPIFFE ID is projected onto the username. Only effective
+    /// when `cert_spiffe_as_username` is enabled.
+    pub fn cert_spiffe_username_format(mut self, v: SpiffeUsernameFormat) -> Self {
+        self.cert_spiffe_username_format = v;
         self
     }
 
@@ -789,7 +863,7 @@ impl Listener {
             let remote_addr = conn.remote_address();
 
             let (send, recv) = conn.accept_bi().await?;
-            let socket = QuinnBiStream::new(send, recv);
+            let socket = QuinnBiStream::new(send, recv).with_connection(conn);
 
             Ok(Acceptor {
                 socket,
@@ -871,6 +945,7 @@ where
             &tls_s,
             self.cfg.cert_cn_as_username,
             self.cfg.cert_subject_dn_as_username,
+            self.cfg.cert_spiffe_as_username,
             self.cfg.collect_cert_info,
         );
 
@@ -917,6 +992,7 @@ where
             &tls_s,
             self.cfg.cert_cn_as_username,
             self.cfg.cert_subject_dn_as_username,
+            self.cfg.cert_spiffe_as_username,
             self.cfg.collect_cert_info,
         );
 
@@ -931,11 +1007,23 @@ where
 
     #[cfg(feature = "quic")]
     #[inline]
-    pub async fn quic(self) -> Result<Dispatcher<S>> {
+    pub async fn quic(self) -> Result<Dispatcher<S>>
+    where
+        S: TlsCertExtractor,
+    {
         if !matches!(self.typ, ListenerType::QUIC) {
             return Err(anyhow!("Protocol mismatch: Expected QUIC listener"));
         }
-        Ok(Dispatcher::new(self.socket, self.remote_addr, None, self.cfg))
+
+        let cert_info = Self::get_extract_cert_info(
+            &self.socket,
+            self.cfg.cert_cn_as_username,
+            self.cfg.cert_subject_dn_as_username,
+            self.cfg.cert_spiffe_as_username,
+            self.cfg.collect_cert_info,
+        );
+
+        Ok(Dispatcher::new(self.socket, self.remote_addr, cert_info, self.cfg))
     }
 
     #[inline]
@@ -944,9 +1032,11 @@ where
         io: &C,
         cert_cn_as_username: bool,
         cert_subject_dn_as_username: bool,
+        cert_spiffe_as_username: bool,
         collect_cert_info: bool,
     ) -> Option<CertInfo> {
-        if cert_cn_as_username || cert_subject_dn_as_username || collect_cert_info {
+        if cert_cn_as_username || cert_subject_dn_as_username || cert_spiffe_as_username || collect_cert_info
+        {
             // Extract cert info BEFORE consuming self
             let cert_info: Option<CertInfo> = io.extract_cert_info();
             // Certificate info is now available in s.cert_info

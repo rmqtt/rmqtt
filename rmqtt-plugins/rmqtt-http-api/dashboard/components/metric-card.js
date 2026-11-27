@@ -1,6 +1,6 @@
 /* ============================================================
-   RMQTT Dashboard — metric-card 组件
-   指标卡片：支持单指标图标卡 / 双指标组合卡
+   RMQTT Dashboard — metric-card component
+   Metric card: single metric with icon, or a pair of metrics
    ============================================================ */
 window.MetricCard = Vue.defineComponent({
   name: 'MetricCard',

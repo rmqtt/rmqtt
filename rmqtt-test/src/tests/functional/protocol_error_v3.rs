@@ -226,7 +226,10 @@ impl TestCase for ProtocolErrorV3BadRemainingLengthTest {
     }
 }
 
-/// Negative: SUBSCRIBE with an empty topic filter (no filters) is invalid.
+/// Negative: SUBSCRIBE with no topic filters (only a packet id) is invalid
+/// and must close the connection. [MQTT-3.8.3-1]
+///
+/// Strict version: the broker must close the connection, not reply SUBACK.
 pub struct ProtocolErrorV3EmptyTopicFilterTest;
 
 impl TestCase for ProtocolErrorV3EmptyTopicFilterTest {
@@ -244,15 +247,132 @@ impl TestCase for ProtocolErrorV3EmptyTopicFilterTest {
             // SUBSCRIBE with only a packet id, no topic filters
             let pkt = [0x82u8, 0x02, 0x00, 0x01];
 
-            // The broker may reply SUBACK with a failure or close the
-            // connection — either is acceptable for an empty filter.
-            let _ = stream.write_all(&pkt);
-            let _ = stream.flush();
-            let mut buf = [0u8; 16];
-            match stream.read(&mut buf) {
-                Ok(0) | Err(_) => Ok(()),                    // closed — acceptable
-                Ok(n) if n >= 2 && buf[0] == 0x90 => Ok(()), // SUBACK — acceptable
-                Ok(n) => Err(anyhow::anyhow!("unexpected response: {:02x?}", &buf[..n])),
+            if expect_connection_closed(&mut stream, &pkt) {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(
+                    "broker did not close for SUBSCRIBE with no topic filters [MQTT-3.8.3-1]"
+                ))
+            }
+        });
+
+        match result {
+            Ok(Ok(())) => TestResult::passed(self.name(), "functional_v3", start.elapsed()),
+            Ok(Err(e)) => TestResult::failed(self.name(), "functional_v3", start.elapsed(), e.to_string()),
+            Err(_) => TestResult::failed(self.name(), "functional_v3", start.elapsed(), "panic".into()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: SUBSCRIBE with an empty-string topic filter is invalid and must
+/// close the connection. [MQTT-4.7.3-1]
+pub struct ProtocolErrorV3SubscribeEmptyFilterTest;
+
+impl TestCase for ProtocolErrorV3SubscribeEmptyFilterTest {
+    fn name(&self) -> &str {
+        "protocol_error_v3_subscribe_empty_filter"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+
+        let result = std::panic::catch_unwind(|| -> anyhow::Result<()> {
+            let uid = uuid::Uuid::new_v4().simple().to_string();
+            let mut stream = raw_connect_v3(&ctx.config.broker_addr, &format!("emptyflt-{uid}"))?;
+
+            // SUBSCRIBE with one empty-string topic filter (len 0x0000)
+            let pkt = [0x82u8, 0x04, 0x00, 0x01, 0x00, 0x00];
+
+            if expect_connection_closed(&mut stream, &pkt) {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(
+                    "broker did not close for SUBSCRIBE with an empty topic filter [MQTT-4.7.3-1]"
+                ))
+            }
+        });
+
+        match result {
+            Ok(Ok(())) => TestResult::passed(self.name(), "functional_v3", start.elapsed()),
+            Ok(Err(e)) => TestResult::failed(self.name(), "functional_v3", start.elapsed(), e.to_string()),
+            Err(_) => TestResult::failed(self.name(), "functional_v3", start.elapsed(), "panic".into()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: UNSUBSCRIBE with no topic filters (only a packet id) is invalid
+/// and must close the connection. [MQTT-3.10.3-1]
+pub struct ProtocolErrorV3UnsubscribeEmptyTest;
+
+impl TestCase for ProtocolErrorV3UnsubscribeEmptyTest {
+    fn name(&self) -> &str {
+        "protocol_error_v3_unsubscribe_empty"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+
+        let result = std::panic::catch_unwind(|| -> anyhow::Result<()> {
+            let uid = uuid::Uuid::new_v4().simple().to_string();
+            let mut stream = raw_connect_v3(&ctx.config.broker_addr, &format!("emptyunsub-{uid}"))?;
+
+            // UNSUBSCRIBE with only a packet id, no topic filters
+            let pkt = [0xA2u8, 0x02, 0x00, 0x01];
+
+            if expect_connection_closed(&mut stream, &pkt) {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(
+                    "broker did not close for UNSUBSCRIBE with no topic filters [MQTT-3.10.3-1]"
+                ))
+            }
+        });
+
+        match result {
+            Ok(Ok(())) => TestResult::passed(self.name(), "functional_v3", start.elapsed()),
+            Ok(Err(e)) => TestResult::failed(self.name(), "functional_v3", start.elapsed(), e.to_string()),
+            Err(_) => TestResult::failed(self.name(), "functional_v3", start.elapsed(), "panic".into()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: UNSUBSCRIBE with an empty-string topic filter is invalid and
+/// must close the connection. [MQTT-4.7.3-1]
+pub struct ProtocolErrorV3UnsubscribeEmptyFilterTest;
+
+impl TestCase for ProtocolErrorV3UnsubscribeEmptyFilterTest {
+    fn name(&self) -> &str {
+        "protocol_error_v3_unsubscribe_empty_filter"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+
+        let result = std::panic::catch_unwind(|| -> anyhow::Result<()> {
+            let uid = uuid::Uuid::new_v4().simple().to_string();
+            let mut stream = raw_connect_v3(&ctx.config.broker_addr, &format!("emptyunsub-{uid}"))?;
+
+            // UNSUBSCRIBE with one empty-string topic filter (len 0x0000)
+            let pkt = [0xA2u8, 0x04, 0x00, 0x01, 0x00, 0x00];
+
+            if expect_connection_closed(&mut stream, &pkt) {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(
+                    "broker did not close for UNSUBSCRIBE with an empty topic filter [MQTT-4.7.3-1]"
+                ))
             }
         });
 
@@ -350,6 +470,61 @@ impl TestCase for ProtocolErrorV3SubscribeQos0FixedHeaderTest {
                 Ok(())
             } else {
                 Err(anyhow::anyhow!("broker did not close connection for SUBSCRIBE with QoS 0 fixed header"))
+            }
+        });
+
+        match result {
+            Ok(Ok(())) => TestResult::passed(self.name(), "functional_v3", start.elapsed()),
+            Ok(Err(e)) => TestResult::failed(self.name(), "functional_v3", start.elapsed(), e.to_string()),
+            Err(_) => TestResult::failed(self.name(), "functional_v3", start.elapsed(), "panic".into()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: a PUBLISH with an empty (zero-length) Topic Name is invalid and
+/// must close the connection. [MQTT-4.7.3-1]
+pub struct ProtocolErrorV3PublishEmptyTopicTest;
+
+impl TestCase for ProtocolErrorV3PublishEmptyTopicTest {
+    fn name(&self) -> &str {
+        "protocol_error_v3_publish_empty_topic"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+
+        let result = std::panic::catch_unwind(|| -> anyhow::Result<()> {
+            let uid = uuid::Uuid::new_v4().simple().to_string();
+            let mut stream = raw_connect_v3(&ctx.config.broker_addr, &format!("pubempty-{uid}"))?;
+
+            // PUBLISH QoS 0 with a zero-length Topic Name (len 0x0000)
+            let mut body: Vec<u8> = Vec::new();
+            body.extend_from_slice(&[0x00, 0x00]); // topic name length 0
+            body.extend_from_slice(b"payload");
+
+            let mut pkt = vec![0x30]; // PUBLISH QoS 0
+            let mut len = body.len();
+            loop {
+                let mut b = (len % 128) as u8;
+                len /= 128;
+                if len > 0 {
+                    b |= 0x80;
+                }
+                pkt.push(b);
+                if len == 0 {
+                    break;
+                }
+            }
+            pkt.extend_from_slice(&body);
+
+            if expect_connection_closed(&mut stream, &pkt) {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("broker did not close for PUBLISH with empty topic [MQTT-4.7.3-1]"))
             }
         });
 

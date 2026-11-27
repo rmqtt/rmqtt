@@ -69,6 +69,25 @@ config_file = "/path/to/rmqtt-bridge-egress-kafka.toml"
 | `message.timeout.ms` | String | `5000` | 消息超时时间（毫秒） |
 | 其他任何 librdkafka 属性 | String | - | 参见 librdkafka 配置文档 |
 
+### TLS、mTLS 与 SASL
+
+> 本节为机器翻译自动生成，以英文 README 为准。
+
+Linux 构建的 librdkafka 已链接 OpenSSL，可通过 `[bridges.properties]` 连接仅支持 TLS 的 Kafka（Aiven、Confluent Cloud、MSK、Redpanda Cloud 等）：
+
+```toml
+[bridges.properties]
+"security.protocol" = "ssl"                                     # 或 "sasl_ssl"
+"ssl.ca.location" = "/etc/rmqtt/kafka/ca.pem"
+"ssl.certificate.location" = "/etc/rmqtt/kafka/service.cert"   # mTLS
+"ssl.key.location" = "/etc/rmqtt/kafka/service.key"            # mTLS
+#"sasl.mechanism" = "SCRAM-SHA-256"   # 支持 PLAIN、SCRAM-SHA-256/512、OAUTHBEARER
+#"sasl.username" = "user"
+#"sasl.password" = "secret"
+```
+
+Broker 证书由公共 CA 签发时，可设置 `ssl.ca.location = "probe"`。
+
 ### 桥接条目 (`[[bridges.entries]]`)
 
 每个桥接条目定义一个主题转发规则。
@@ -80,6 +99,9 @@ config_file = "/path/to/rmqtt-bridge-egress-kafka.toml"
 | `remote.queue_timeout` | Duration | `0m` | librdkafka 生产者队列满时的重试时间。`0` 表示永不阻塞 |
 | `remote.partition` | Integer | - | 记录的目标分区（可选） |
 | `remote.skip_levels` | Integer | `0` | 替换 `${local.topic}` 时要跳过的主题层级数 |
+| `remote.forward_all_from` | Boolean | `true` | 转发所有来源数据：`from_type`, `from_node`, `from_ipaddress`, `from_clientid`, `from_username` |
+| `remote.forward_all_publish` | Boolean | `true` | 转发所有发布数据：`dup`, `retain`, `qos`, `packet_id` |
+| `remote.forward_user_properties` | Boolean | `false` | 转发 MQTT v5 用户属性（User Properties）到 Kafka 消息头 |
 
 ## 配置示例
 

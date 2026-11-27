@@ -120,6 +120,7 @@
     "messages_publish": "發布消息數",
     "messages_delivered": "投遞消息數",
     "messages_discarded": "丟棄消息數",
+    "offline_saves_dropped": "離線持久化丟棄",
     "subscriptions_count": "訂閱數",
     "shared_subscriptions_count": "共享訂閱數",
     "clients_connected": "Connections",
@@ -154,6 +155,7 @@
     "features_delayed": "延遲訊息",
     "features_shared_subscription": "共享訂閱",
     "features_auto_subscription": "自動訂閱",
+    "features_flapping": "連線抖動防護",
     "features_tab_title": "功能支援狀態"
   },
   "gauge": {
@@ -302,7 +304,8 @@
     "dashboard": "Dashboard",
     "confirm": "確定",
     "cancel": "取消",
-    "confirm_title": "確認操作"
+    "confirm_title": "確認操作",
+    "copy": "複製"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +355,43 @@
     "delete": "刪除",
     "delete_confirm": "確定刪除主題 {topic} 的保留訊息嗎？",
     "delete_fail": "刪除失敗：{msg}"
+  },
+  "delayed": {
+    "not_enabled": "延遲發布功能未啟用（需載入 rmqtt-delayed 外掛）",
+    "topic_filter_placeholder": "主題過濾器（如 sensor/#，留空 = 全部）",
+    "topic": "主題",
+    "delay_interval": "延遲間隔",
+    "fire_time": "觸發時間",
+    "remaining": "剩餘時間",
+    "client_id": "用戶端 ID",
+    "username": "使用者名稱",
+    "payload_size": "Payload 大小",
+    "node": "節點",
+    "payload": "Payload 內容",
+    "not_found": "訊息已觸發或已不存在",
+    "no_results": "暫無延遲訊息",
+    "view_payload": "查看 Payload"
+  },
+  "flapping": {
+    "not_enabled": "連線抖動防護未啟用（請載入 rmqtt-flapping 外掛，或設定 enable = true）",
+    "node_local": "封禁表為節點本機狀態，本列表只反映回應節點",
+    "banned_count": "目前生效封禁",
+    "dimension": "維度",
+    "dimension_all": "全部維度",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "使用者名稱",
+    "dimension_peerhost": "來源位址",
+    "key": "鍵",
+    "key_placeholder": "鍵（精確比對，如 ClientID / 使用者名稱 / IP）",
+    "count": "觸發次數",
+    "banned_at": "封禁時間",
+    "banned_until": "解封時間",
+    "remaining": "剩餘",
+    "last_clientid": "最近 ClientID",
+    "last_ipaddress": "最近來源位址",
+    "unban": "解封",
+    "unban_confirm": "解除對 {dimension}「{key}」的封禁？",
+    "unban_fail": "解封失敗：{msg}",
+    "no_results": "目前沒有生效中的封禁"
   }
 }

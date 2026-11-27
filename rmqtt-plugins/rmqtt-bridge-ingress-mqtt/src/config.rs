@@ -34,6 +34,27 @@ pub struct PluginConfig {
     pub bridges: Vec<Bridge>,
 }
 
+/// How many SUBSCRIBE attempts a single entry makes on one connection before it
+/// is given up on until the next reconnect.
+///
+/// MQTT 3.1.1 cannot say *why* a subscription was refused, and MQTT 5 reports
+/// transient reasons (`0x80`, `0x83`, `0x91`, `0x97`) in the same shape as
+/// permanent ones, so a refusal is retried on a bounded, exponentially growing
+/// backoff rather than on the fixed five-second cadence that hid issue #540.
+pub(crate) const MAX_SUBSCRIBE_ATTEMPTS: u32 = 8;
+
+/// Upper bound of the exponential backoff between those attempts. With the
+/// default `reconnect_interval` (5 s) the eight attempts span about ten minutes.
+pub(crate) const MAX_SUBSCRIBE_BACKOFF: Duration = Duration::from_secs(300);
+
+/// How often to repeat, at `warn`, that an entry is still inactive after its
+/// subscription was given up on, for as long as the connection stays up. The
+/// one-time `error` at give-up is easy to miss in a log that has been rolling
+/// for hours, and the peer's ACL or quota may long since have been fixed: the
+/// entry comes back only when the bridge reconnects, so the reminder names
+/// that, too.
+pub(crate) const INACTIVE_REMINDER_INTERVAL: Duration = Duration::from_secs(300);
+
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Bridge {
     #[serde(default)]
@@ -404,9 +425,24 @@ impl Local {
     #[inline]
     pub fn make_topic(&self, remote_topic: &str) -> TopicName {
         if self.topic_has_pattern() {
-            TopicName::from(self.topic().replace("${remote.topic}", remote_topic))
+            TopicName::from(self.topic().replace(REMOTE_TOPIC_PLACEHOLDER, remote_topic))
         } else {
             TopicName::from(self.topic())
+        }
+    }
+
+    /// The part of `local.topic` that is fixed at configuration time, with
+    /// [`REMOTE_TOPIC_PLACEHOLDER`] reduced to a single legal level.
+    ///
+    /// This is what [`PluginConfig::validate`] checks: a wildcard outside the
+    /// placeholder can never become a legal topic name, whatever the peer
+    /// publishes, whereas the substituted value itself is only known at runtime.
+    #[inline]
+    pub fn topic_skeleton(&self) -> String {
+        if self.topic_has_pattern() {
+            self.topic().replace(REMOTE_TOPIC_PLACEHOLDER, PLACEHOLDER_STAND_IN)
+        } else {
+            self.topic().to_owned()
         }
     }
 
@@ -444,8 +480,71 @@ impl Local {
         D: Deserializer<'de>,
     {
         let topic = String::deserialize(deserializer)?;
-        let has_pattern = topic.contains("${remote.topic}");
+        let has_pattern = topic.contains(REMOTE_TOPIC_PLACEHOLDER);
         Ok((topic, has_pattern))
+    }
+}
+
+/// The `${remote.topic}` placeholder as it appears in `local.topic`.
+const REMOTE_TOPIC_PLACEHOLDER: &str = "${remote.topic}";
+
+/// The level substituted for [`REMOTE_TOPIC_PLACEHOLDER`] when a mapping's
+/// fixed part is checked: one legal level, which is what the placeholder
+/// resolves to at runtime (a topic name taken off the wire).
+const PLACEHOLDER_STAND_IN: &str = "x";
+
+impl PluginConfig {
+    /// Reject bridge mappings that can never produce a legal topic name.
+    ///
+    /// In an ingress entry `local.topic` is the topic the bridge publishes
+    /// *into* the local broker — a topic NAME. The filter side of the same
+    /// entry is `remote.topic`, which is what the bridge subscribes to on the
+    /// peer. A wildcard that ends up in a name cannot be encoded on the wire,
+    /// and a peer that checks names answers by dropping the connection, which
+    /// is the reconnect-and-resend loop reported as issue #451.
+    ///
+    /// Only the part of the mapping that is fixed at configuration time is
+    /// checked, with the placeholder reduced to a single stand-in level, so
+    /// `a/#/${remote.topic}` is still rejected. Whether the substituted value
+    /// itself is a legal name is a runtime concern, not a configuration one.
+    ///
+    /// Disabled bridges are skipped: they never connect, and failing them here
+    /// would break configurations that are currently harmless.
+    pub fn validate(&self) -> Result<()> {
+        for (i, bridge) in self.bridges.iter().enumerate() {
+            if !bridge.enable {
+                continue;
+            }
+            for (j, entry) in bridge.entries.iter().enumerate() {
+                if !rmqtt::topic::is_valid_topic_name(entry.local.topic_skeleton()) {
+                    return Err(anyhow!(
+                        "bridges[{i}].entries[{j}].local.topic = {:?} cannot produce a legal topic \
+                         name: a topic name must not be empty, must not contain the wildcards `+` \
+                         or `#` (MQTT 5.0 [MQTT-3.3.2-2]), and must be at most 65535 bytes long. \
+                         `+` and `#` belong in `remote.topic`, which is a topic filter.",
+                        entry.local.topic()
+                    ));
+                }
+
+                // `remote.topic` is the filter this entry sends in SUBSCRIBE.
+                // A peer answers a malformed filter either with a SUBACK failure
+                // or by dropping the connection, and the bridge then retries on
+                // a fixed cadence without ever naming the field — the entry
+                // delivers nothing and the operator sees a healthy bridge
+                // (issue #540). Refuse the configuration instead.
+                if !rmqtt::topic::is_valid_subscription_filter(&entry.remote.topic) {
+                    return Err(anyhow!(
+                        "bridges[{i}].entries[{j}].remote.topic = {:?} is not a valid MQTT topic \
+                         filter: a topic filter must be at least one character long, must be at \
+                         most 65535 bytes, must not contain U+0000, `#` is legal only as the last \
+                         level (MQTT 5.0 [MQTT-4.7.1-1]), and `$share/<group>/<filter>` needs a \
+                         filter behind the group.",
+                        entry.remote.topic
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -467,4 +566,100 @@ fn last_will_basic(obj: &Map<String, Value>) -> Result<(QoS, bool, ByteString, B
         Bytes::from(String::from(message))
     };
     Ok((qos, retain, ByteString::from(topic), message))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A one-entry config carrying both sides of the mapping explicitly.
+    ///
+    /// Keeping both settable matters: an entry with a legal `local.topic` but
+    /// an empty `remote.topic` would otherwise be reported for the filter side,
+    /// and vice versa.
+    fn config_with(enable: bool, local_topic: &str, remote_topic: &str) -> PluginConfig {
+        PluginConfig {
+            bridges: vec![Bridge {
+                enable,
+                entries: vec![Entry {
+                    remote: Remote { topic: remote_topic.to_owned(), ..Remote::default() },
+                    local: Local {
+                        topic: (local_topic.to_owned(), local_topic.contains(REMOTE_TOPIC_PLACEHOLDER)),
+                        ..Local::default()
+                    },
+                }],
+                ..Bridge::default()
+            }],
+        }
+    }
+
+    /// The name-side tests: the filter side is held legal on purpose.
+    fn config(enable: bool, local_topic: &str) -> PluginConfig {
+        config_with(enable, local_topic, "up/plain/#")
+    }
+
+    #[test]
+    fn validate_accepts_legal_local_topics() {
+        for topic in ["${remote.topic}", "${remote.topic}/suffix", "ing/plain", "ing/${remote.topic}"] {
+            assert!(config(true, topic).validate().is_ok(), "`{topic}` must be accepted");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_filter_shaped_local_topic() {
+        let err = config(true, "ing/mirror/#").validate().unwrap_err().to_string();
+        assert!(err.contains("bridges[0].entries[0].local.topic"), "{err}");
+        assert!(err.contains("ing/mirror/#"), "{err}");
+    }
+
+    #[test]
+    fn validate_rejects_a_wildcard_in_the_fixed_part() {
+        assert!(config(true, "ing/#/${remote.topic}").validate().is_err());
+        assert!(config(true, "ing/+/${remote.topic}").validate().is_err());
+    }
+
+    #[test]
+    fn validate_skips_disabled_bridges() {
+        assert!(config(false, "ing/mirror/#").validate().is_ok());
+    }
+
+    /// `remote.topic` is the filter sent in SUBSCRIBE: `#` is legal there (and
+    /// only as the last level), and a shared subscription is a legal filter —
+    /// including the empty ShareName that `parse_topic_filter` accepts.
+    #[test]
+    fn validate_accepts_legal_remote_topics() {
+        for topic in [
+            "a",
+            "#",
+            "+",
+            "a/b/#",
+            "up/plain/#",
+            "up/+/#",
+            "$share/g/up/a/#",
+            "$share/g/#",
+            // [MQTT-4.8.2-1] requires a non-empty ShareName, but the broker has
+            // always taken an empty group as it stands; a check describing what a
+            // peer will accept must not be stricter than the parser.
+            "$share//up/a",
+        ] {
+            assert!(config_with(true, "ing/plain", topic).validate().is_ok(), "`{topic}` must be accepted");
+        }
+    }
+
+    /// Issue #540: a malformed filter is refused while the config is loaded, and
+    /// the message names the offending field (the `bridge_config_reject` suite
+    /// matches on exactly that).
+    #[test]
+    fn validate_rejects_a_malformed_remote_topic() {
+        for topic in ["", "up/#/x", "a#", "#/a", "a/#/", "$share/g", "$share/g/", "$share/+/a"] {
+            let err = config_with(true, "ing/plain", topic).validate().unwrap_err().to_string();
+            assert!(err.contains("bridges[0].entries[0].remote.topic"), "`{topic}`: {err}");
+            assert!(err.contains("topic filter"), "`{topic}`: {err}");
+        }
+    }
+
+    #[test]
+    fn validate_skips_disabled_bridges_on_the_filter_side_too() {
+        assert!(config_with(false, "ing/plain", "up/#/x").validate().is_ok());
+    }
 }

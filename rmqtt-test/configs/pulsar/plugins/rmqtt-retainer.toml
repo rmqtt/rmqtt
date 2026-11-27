@@ -1,0 +1,24 @@
+##--------------------------------------------------------------------
+## rmqtt-retainer - mqtt_harness `pulsar` suite config
+##
+## Enabled for this suite only: the ingress test IG-04 checks that a Pulsar
+## message property `retain = true` produces a retained MQTT delivery, which
+## requires the retainer plugin. RAM storage is enough for a single-node test
+## and avoids writing to a sled path.
+##--------------------------------------------------------------------
+
+##ram, sled, redis
+storage.type = "ram"
+
+# The maximum number of retained messages, where 0 indicates no limit.
+max_retained_messages = 0
+
+# The maximum Payload value for retaining messages.
+max_payload_size = "1MB"
+
+# TTL for retained messages. Set to 0 for no expiration.
+# If not specified, the message expiration time will be used by default.
+retained_message_ttl = "0m"
+
+# Maximum number of messages per batch (default: 500).
+batch_messages_limit = 500

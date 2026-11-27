@@ -118,7 +118,7 @@ rule.offline_message = [{action = "offline_message", topics=["#", "$SYS/#"] }]
 | session_subscribed   | 会话订阅主题 | 完成订阅操作后                                         |
 | session_unsubscribed | 会话取消订阅 | 完成取消订阅操作后                                       |
 | client_connect       | 处理连接报文 | 服务端收到客户端的连接报文时                                  |
-| client_connack       | 下发连接应答 | 服务端准备下发连接应答报文时                                  |
+| client_connack       | 下发连接应答 | 服务端准备下发连接应答报文时（接受连接与拒绝连接都会触发）                            |
 | client_connected     | 成功接入     | 客户端认证完成并成功接入系统后                                 |
 | client_disconnected  | 连接断开     | 客户端连接层在准备关闭时                                    |
 | client_subscribe     | 订阅主题     | 收到订阅报文后，执行 `ACL` 鉴权前                            |
@@ -248,6 +248,8 @@ opts 包含
 | clean_start   | bool    | 连接时清除会话标记(MQTT 5.0)              |
 | conn_ack      | string  | "Connection Accepted" 表示成功，其它表示失败的原因 |
 | time          | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
+
+注意：连接被拒绝时同样会触发该事件，`conn_ack` 为拒绝原因；只有 CONNECT 报文尚未解析成功就已失败的情况（报文无法解码、节点过载、握手超时）不会上报。
 
 **client_connected**
 

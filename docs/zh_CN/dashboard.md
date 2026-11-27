@@ -38,6 +38,10 @@ dashboard_static_dir = "/path/to/rmqtt-plugins/rmqtt-http-api/dashboard"
 | `#/clients` | 客户端 | 客户端搜索与高级筛选（含日期时间选择器）、列表、在线/离线踢出 |
 | `#/clients/detail` | 客户端详情 | 连接信息 + 会话信息两栏、当前订阅列表（可取消订阅） |
 | `#/retains` | 保留消息 | `topic_filter` 查询、分页（上一页/下一页）、payload 预览与详情弹窗 |
+| `#/delayed_publishs` | 延迟发布 | `topic_filter` 查询、分页、payload 按需加载（明文 / Base64 / JSON / Hex）、5s 自动刷新 |
+| `#/flapping` | 连接抖动 | 维度 / 键筛选与分页、解封剩余时间本地倒计时、手工解封（二次确认）；列表为应答节点本地状态，不做集群聚合 |
+| `#/publish` | 发布消息 | 向指定主题发布消息（QoS / Retain 可选） |
+| `#/plugins` | 插件 | 插件列表与运行状态、查看插件配置 |
 
 ## 国际化
 

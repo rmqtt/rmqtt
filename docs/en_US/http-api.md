@@ -267,7 +267,7 @@ Returns the feature support state of every cluster node plus a cluster-wide cons
 | nodes         | Array | Per-node details; unreachable nodes appear as error strings and are excluded from the consistency comparison |
 | - nodes[i].node_id    | Integer | Node ID |
 | - nodes[i].node_name  | String | Node name |
-| - nodes[i].features   | Object | Six feature flags: `retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription` |
+| - nodes[i].features   | Object | Seven feature flags: `retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription`, `flapping` |
 
 **Examples:**
 
@@ -298,7 +298,8 @@ $ curl -i -X GET "http://localhost:6060/api/v1/features"
         "session_storage": false,
         "delayed": true,
         "shared_subscription": true,
-        "auto_subscription": false
+        "auto_subscription": false,
+        "flapping": false
       }
     }
   ]
@@ -323,14 +324,14 @@ Returns the feature support state of a specific node.
 |---------------|------|-------------|
 | node_id       | Integer | Node ID |
 | node_name     | String | Node name |
-| features      | Object | Six feature flags: `retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription` |
+| features      | Object | Seven feature flags: `retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription`, `flapping` |
 
 **Examples:**
 
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/features/1"
 
-{"node_id":1,"node_name":"rmqtt@127.0.0.1","features":{"retain":true,"message_storage":false,"session_storage":false,"delayed":true,"shared_subscription":true,"auto_subscription":false}}
+{"node_id":1,"node_name":"rmqtt@127.0.0.1","features":{"retain":true,"message_storage":false,"session_storage":false,"delayed":true,"shared_subscription":true,"auto_subscription":false,"flapping":false}}
 ```
 
 ## Health Check
@@ -569,6 +570,82 @@ $ curl -i -X GET "http://localhost:6060/api/v1/clients/example1/online"
 false
 ```
 
+## Connection Gate
+
+Requires the `rmqtt-flapping` plugin. The ban table is node-local, so these two endpoints answer for the node that receives the request instead of aggregating the cluster.
+
+### GET /api/v1/flapping/banned
+
+Returns the connection bans currently in force on this node.
+
+**Query String Parameters:**
+
+| Name       | Type    | Required | Description                     |
+| ---------- | ------- | -------- | ------------------------------- |
+| dimension  | String  | False    | `clientid`, `username` or `peerhost`; empty means every dimension |
+| key        | String  | False    | Exact match against the ban's key; empty means every key |
+| offset     | Integer | False    | Entries to skip, default 0      |
+| limit      | Integer | False    | Page size, defaults to `max_row_limit` and is clamped to it |
+
+**Success Response Body (JSON):**
+
+| Name         | Type             | Description                        |
+|--------------|------------------|------------------------------------|
+| available    | Bool             | Whether a gate is installed and screening on this node; `false` means the feature is not in use, and every other field is then truthfully empty |
+| items        | Array of Objects | The bans in the page               |
+| has_more     | Bool             | Whether another page follows       |
+| banned_count | Integer          | Bans in force on this node, unaffected by the `dimension`/`key` filter |
+
+**items elements:**
+
+| Name           | Type    | Description                                     |
+|----------------|---------|-------------------------------------------------|
+| dimension      | String  | The dimension the ban belongs to                |
+| key            | String  | The ClientId / username / source IP the ban is keyed by |
+| count          | Integer | Attempts in the window that triggered the ban   |
+| banned_at      | String  | When the ban was created                        |
+| banned_until   | String  | When the ban lapses                             |
+| remaining_ms   | Integer | Milliseconds left, measured when the answer was built |
+| last_clientid  | String  | ClientId of the attempt that triggered the ban  |
+| last_ipaddress | String  | Source address of the attempt that triggered the ban |
+
+Returns `200` with `available: false` and an empty list when no gate is installed, or the gate is loaded but not screening (no dimension enabled, or `enable = false`) — an empty list is a valid answer, so there is no error to report, and the flag is what keeps that state apart from a gate that is screening and has nothing banned. Returns `400` for an unknown `dimension`.
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/flapping/banned?dimension=clientid"
+
+{"available":true,"items":[{"dimension":"clientid","key":"device-01","count":4,"banned_at":"2026-09-27 11:02:14.118","banned_until":"2026-09-27 11:07:14.118","remaining_ms":282000,"last_clientid":"device-01","last_ipaddress":"192.168.1.10:54321"}],"has_more":false,"banned_count":1}
+```
+
+### DELETE /api/v1/flapping/banned
+
+Lift one ban by hand. `dimension` and `key` are both **query parameters**, never path segments: a key is matched exactly as typed (a ClientId may legally contain a space or a `/`), so it cannot be safely squeezed into a path.
+
+**Query String Parameters:**
+
+| Name       | Type   | Required | Description                |
+| ---------- | ------ | -------- | -------------------------- |
+| dimension  | String | True     | `clientid`, `username` or `peerhost` |
+| key        | String | True     | The key to lift the ban on; must not be empty |
+
+**Success Response Body (JSON):**
+
+```json
+{ "dimension": "clientid", "key": "device-01", "unbanned": true }
+```
+
+`400`: `dimension` missing or unknown, or `key` missing/empty. `404`: there was no ban on that key to lift — which includes every key of a gate that is not screening, since such a gate holds no bans at all.
+
+**Examples:**
+
+```bash
+$ curl -i -X DELETE "http://localhost:6060/api/v1/flapping/banned?dimension=clientid&key=device-01"
+
+{"dimension":"clientid","key":"device-01","unbanned":true}
+```
+
 ## Subscription Information
 
 ### GET /api/v1/subscriptions
@@ -752,6 +829,99 @@ $ curl -i -X GET "http://localhost:6060/api/v1/retains?topic_filter=%2Fiot%2Fb%2
 ```
 
 > Note: the `topic_filter=#` (full) path is paginated at the storage layer and includes `remaining_ttl` (remaining seconds); the filter path is paginated in memory and `remaining_ttl` is `null`. Requires the `rmqtt-retainer` plugin to be enabled.
+
+## Delayed Publish
+
+### GET /api/v1/delayed_publishs
+
+Queries all pending delayed messages (`$delayed/<interval>/<topic>`) across the cluster. Delayed messages live in the **local in-memory heap of the receiving node** (not persisted, not synchronized across nodes), so this endpoint fans out to every node, merges the results, and paginates globally by trigger time. Metadata only — **payload content is not included** (its size is exposed as `payload_len`).
+
+**Query String Parameters:**
+
+| Name         | Type    | Required | Default         | Description |
+|--------------|---------|----------|-----------------|-------------|
+| topic_filter | String  | False    | empty (all)     | Topic filter, supports `#` / `+` wildcards; matched against the target topic with the `$delayed/<interval>/` prefix stripped; invalid filters return 400 |
+| offset       | Integer | False    | 0               | Pagination offset |
+| limit        | Integer | False    | `max_row_limit` | Page size; clamped to `max_row_limit` when exceeded |
+
+**Success Response Body (JSON):**
+
+| Name                      | Type | Description |
+|---------------------------|------|-------------|
+| items                     | Array | Pending delayed message list |
+| - items[i].node_id        | Integer | Node holding the message |
+| - items[i].topic          | String | Target topic (`$delayed/<interval>/` prefix stripped) |
+| - items[i].delay_interval | Integer | Delay interval in seconds |
+| - items[i].expired_time   | Integer | Trigger time (millisecond timestamp) |
+| - items[i].client_id      | String/Null | Publisher client ID |
+| - items[i].username       | String/Null | Publisher username |
+| - items[i].qos            | Integer | QoS level |
+| - items[i].retain         | Bool | Retain flag |
+| - items[i].payload_len    | Integer | Payload size in bytes, content not included |
+| has_more                  | Bool | Whether more data is available; conservatively `true` when any node returned exactly `max_row_limit` entries |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/delayed_publishs?topic_filter=sensor/%23&offset=0&limit=50"
+```
+
+```json
+{
+  "items": [
+    {
+      "node_id": 1,
+      "topic": "foo/1",
+      "delay_interval": 300,
+      "expired_time": 1780000000000,
+      "client_id": "publisher-01",
+      "username": "admin",
+      "qos": 1,
+      "retain": false,
+      "payload_len": 128
+    }
+  ],
+  "has_more": false
+}
+```
+
+> Note: requires the `rmqtt-delayed` plugin (enable it via `plugins.default_startups`, not enabled by default); nodes without the plugin return empty data. Expired messages are forwarded by the background task and disappear from the list. On plugin stop/unload, pending messages are flushed according to `publish_immediate`: forwarded immediately (`true`) or dropped through the `message_dropped` hook (`false`, reason `DelayedPublishRefused`). See `rmqtt-delayed.toml` (`publish_max` / `publish_immediate`) for the related options. The Dashboard "Monitoring → Delayed Publish" page is built on this endpoint.
+
+### GET /api/v1/delayed_publishs/detail
+
+Fetches one pending delayed message by its composite key (`node_id` + `topic` + `expired_time` + optional `client_id`), **including the base64-encoded payload content**. Local node queries the in-memory heap directly; remote nodes are queried through targeted (non-broadcast) gRPC.
+
+**Query String Parameters:**
+
+| Name         | Type    | Required | Description |
+|--------------|---------|----------|-------------|
+| node_id      | Integer | True     | Node holding the message |
+| topic        | String  | True     | Target topic (`$delayed/<interval>/` prefix stripped) |
+| expired_time | Integer | True     | Trigger time (millisecond timestamp, as returned by the list endpoint) |
+| client_id    | String  | False    | Publisher client ID (optional filter) |
+
+**Success Response Body (JSON):**
+
+| Name           | Type | Description |
+|----------------|------|-------------|
+| node_id        | Integer | Node holding the message |
+| topic          | String | Target topic |
+| delay_interval | Integer | Delay interval in seconds |
+| expired_time   | Integer | Trigger time (millisecond timestamp) |
+| client_id      | String/Null | Publisher client ID |
+| username       | String/Null | Publisher username |
+| qos            | Integer | QoS level |
+| retain         | Bool | Retain flag |
+| payload_len    | Integer | Payload size in bytes |
+| payload        | String | **Full payload content, base64-encoded** |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/delayed_publishs/detail?node_id=1&topic=foo/1&expired_time=1780000000000&client_id=publisher-01"
+```
+
+> Note: returns **404** (`delayed publish not found (may have fired)`) when the message fired between listing and the detail request; messages are not persisted and are lost on node restart.
 
 ## Publish message
 
@@ -1102,6 +1272,8 @@ Return all status data in the cluster.
 | retained.max               | Integer | Historical maximum number of retained messages |
 | delayed_publishs.count     | Integer | Number of current delayed publish messages |
 | delayed_publishs.max       | Integer | Historical maximum number of delayed publish messages |
+| flapping_banned.count      | Integer | Connection bans currently in force     |
+| flapping_banned.max        | Integer | Historical maximum number of connection bans |
 | forwards.count             | Integer | Number of current forwarded messages |
 | forwards.max               | Integer | Historical maximum number of forwarded messages |
 | in_inflights.count         | Integer | Current number of incoming inflight messages (awaiting ACK) |
@@ -1376,6 +1548,8 @@ Returns all statistical metrics under the cluster
 | client.subscribe.check.acl      | Integer   | Subscribe, Number of ACL rule checks                                                       |
 | client.subscribe                | Integer   | Number of client subscriptions                                                             |
 | client.unsubscribe              | Integer   | Number of client unsubscriptions                                                           |
+| conn.flapping.banned            | Integer   | Cumulative connection bans created by flapping protection (one per detection, not per refused attempt) |
+| conn.flapping.refused           | Integer   | Cumulative connections refused because a ban was in force                                   |
 | messages.publish                | Integer   | Number of received PUBLISH packet                                                          |
 | messages.publish.admin          | Integer   | Messages published via the HTTP API                                                        |
 | messages.publish.bridge         | Integer   | Messages published via Bridge                                                              |
@@ -1404,6 +1578,7 @@ Returns all statistical metrics under the cluster
 | messages.nonsubscribed.lastwill | Integer   | Without Subscription Found, Last Will Message                                              |
 | messages.nonsubscribed.system   | Integer   | Without Subscription Found, System Topic Messages ($SYS/#)                                 |
 | messages.dropped                | Integer   | Total number of messages dropped                                                           |
+| messages.offline.saves.dropped  | Integer   | Cumulative number of offline-message persistence tasks dropped because the session-storage executor queue was full (the messages stay deliverable from memory; a further broker restart would lose them) |
 | session.created                 | Integer   | Number of sessions created                                                                 |
 | session.resumed                 | Integer   | Number of sessions resumed because `Clean Session` or `Clean Start` is false               |
 | session.subscribed              | Integer   | Number of successful client subscriptions                                                  |

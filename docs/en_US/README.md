@@ -52,6 +52,7 @@ Welcome to the RMQTT documentation. This index provides a structured overview of
 | [ACL (Access Control List)](acl.md) | File-based ACL rule engine |
 | [HTTP Authentication](auth-http.md) | External HTTP API authentication |
 | [JWT Authentication](auth-jwt.md) | JSON Web Token validation |
+| [Connection Flapping Protection](flapping.md) | Sliding-window bans for reconnect floods, keyed by ClientId, username or source IP |
 
 ### Message Storage & Delivery
 
@@ -127,6 +128,7 @@ Each crate has its own bilingual README:
 | **Auth** | [rmqtt-acl](../rmqtt-plugins/rmqtt-acl/README.md) | File-based ACL |
 | | [rmqtt-auth-http](../rmqtt-plugins/rmqtt-auth-http/README.md) | HTTP authentication |
 | | [rmqtt-auth-jwt](../rmqtt-plugins/rmqtt-auth-jwt/README.md) | JWT authentication |
+| | [rmqtt-flapping](../rmqtt-plugins/rmqtt-flapping/README.md) | Connection flapping protection (reconnect floods) |
 | **Storage** | [rmqtt-retainer](../rmqtt-plugins/rmqtt-retainer/README.md) | Retained message store |
 | | [rmqtt-message-storage](../rmqtt-plugins/rmqtt-message-storage/README.md) | Message persistence |
 | | [rmqtt-session-storage](../rmqtt-plugins/rmqtt-session-storage/README.md) | Session persistence |
@@ -167,7 +169,7 @@ Each crate has its own bilingual README:
 
 | Resource | Description |
 |----------|-------------|
-| [HTTP API Reference](reference/http-api.md) | Complete REST API endpoint reference (36 endpoints) |
+| [HTTP API Reference](reference/http-api.md) | Complete REST API endpoint reference (38 endpoints) |
 
 ---
 

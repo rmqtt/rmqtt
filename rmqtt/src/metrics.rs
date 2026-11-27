@@ -21,6 +21,7 @@
 //! 3. ​**​Message Processing​**​:
 //!    - Publish/delivery/ack flows
 //!    - Message drops
+//!    - Offline-message persistence drops
 //!    - Non-subscribed messages
 //!    - QoS-specific tracking
 //!
@@ -134,4 +135,19 @@ pub struct Metrics {
     messages_nonsubscribed_lastwill: AtomicUsize,
     messages_nonsubscribed_system: AtomicUsize,
     messages_nonsubscribed_bridge: AtomicUsize,
+
+    // Offline-message persistence tasks dropped by the bounded executor of
+    // `rmqtt-session-storage` (its queue saturated), i.e. one count per offline
+    // message whose stored copy was never written. The messages are still
+    // delivered from memory, so this is a durability downgrade rather than a
+    // delivery drop: a further broker restart would lose them.
+    messages_offline_saves_dropped: AtomicUsize,
+
+    // Connection-gate counters. `conn_flapping_banned` counts bans *created* by
+    // the flapping plugin (one per detection, not one per refused attempt);
+    // `conn_flapping_refused` counts every connection refused because a ban was
+    // in force. Both only increase, so they belong here rather than in
+    // `Stats`, whose `flapping_banned` *falls* when a ban lapses.
+    conn_flapping_banned: AtomicUsize,
+    conn_flapping_refused: AtomicUsize,
 }

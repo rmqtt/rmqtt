@@ -1,0 +1,108 @@
+##--------------------------------------------------------------------
+## rmqtt-flapping
+##--------------------------------------------------------------------
+## Counts connection attempts per ClientId, username and source address in a
+## sliding window, and refuses the offenders for a while once they cross the
+## threshold. See docs/{en_US,zh_CN}/flapping.md.
+##
+## A dimension is enabled by presenting its policy table: the three tables
+## below are commented out except `by_clientid`, so this file enables exactly
+## one dimension. Uncomment or add the others to screen more of them.
+##
+## Cluster note: the counters and the ban table are node-local. Behind a load
+## balancer an offender spreads its attempts over the nodes, so with N nodes
+## it gets roughly N times the attempts before any single node refuses it.
+## Set `max_count` accordingly.
+
+## Whether the gate screens connections at all. With `false` the plugin loads
+## and reports its (empty) state, but refuses nothing.
+enable = true
+
+##--------------------------------------------------------------------
+## Capacity and cleanup
+##--------------------------------------------------------------------
+
+## Upper bound on the keys tracked *per dimension*. A key is only admitted
+## while there is room, so a flood of random ClientIds cannot grow the table
+## without bound; once it is full the attempts that would have created a new
+## key are let through untracked instead of being refused.
+max_track = 100_000
+
+## How often the expired windows and lapsed bans are swept. A sweep only looks
+## at the entries that are due, so an idle broker pays one clock reading per
+## interval and the interval only trades memory retention against wake-ups.
+## Must be at least 1s.
+gc_interval = "10s"
+
+##--------------------------------------------------------------------
+## Per-dimension policies
+##--------------------------------------------------------------------
+
+## Counts connection attempts that share a ClientId.
+##
+## Note: a client that connects with an empty ClientId and CleanSession /
+## CleanStart set gets a server-generated ClientId, so those clients never
+## share a key and are only ever caught by `by_peerhost`.
+[by_clientid]
+## The width of the window attempts are counted in.
+window_time = "1m"
+## The number of attempts inside the window that triggers a ban. The attempt
+## that reaches the count is itself refused.
+max_count = 15
+## How long a ban lasts. A ban is never extended while it is in force.
+ban_time = "5m"
+
+## Counts connection attempts that share a username. Connections that carry no
+## username are not counted.
+#[by_username]
+#window_time = "1m"
+#max_count = 15
+#ban_time = "5m"
+
+## Counts connection attempts that come from the same source IP address. This
+## is the dimension that catches a client cycling through random ClientIds.
+#[by_peerhost]
+#window_time = "30s"
+#max_count = 100
+#ban_time = "10m"
+
+##--------------------------------------------------------------------
+## Notification
+##--------------------------------------------------------------------
+## A refusal also raises the `client_connack` web-hook event, whose body
+## already carries the ClientId, the username and the source address; enabling
+## `client_connack` in rmqtt-web-hook is enough to receive those. The settings
+## below are for business systems that would rather subscribe to a topic.
+
+## Publish one message per newly created ban.
+notify_sys_topic = true
+
+## The topic bans are announced on. `{node}` is replaced with the node id.
+sys_topic = "$SYS/brokers/{node}/flapping/banned"
+
+## QoS of the announcement. Kept at most once: a ban notice must not be
+## retried into a business system that is already struggling.
+sys_topic_qos = 0
+
+## Message expiry, consumed by rmqtt-retainer when it is loaded.
+message_expiry_interval = "5m"
+
+## Announce every attempt refused while a ban is in force, not just the ban
+## itself. Off by default: a determined offender would otherwise fill the topic
+## with one message per reconnect.
+notify_on_every_refusal = false
+
+## Announce a ban lifted through the management API. Bans that simply lapse are
+## never announced, so the topic stays free of routine noise.
+notify_on_unban = true
+sys_topic_unban = "$SYS/brokers/{node}/flapping/unbanned"
+
+##--------------------------------------------------------------------
+## Exemptions
+##--------------------------------------------------------------------
+## Exact matches, checked per dimension. Exempt keys are neither counted nor
+## banned, so a monitoring client that reconnects often does not trip the gate.
+allow_clientids = []
+allow_usernames = []
+## Source IP addresses, without a port, e.g. "192.168.1.10".
+allow_peerhosts = []

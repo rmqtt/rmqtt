@@ -57,6 +57,11 @@ use crate::{Error, Result};
 /// the main message processing loop. Handles connection refusal with
 /// appropriate CONNACK codes on failure.
 ///
+/// A handshake a hook refuses is an expected outcome rather than a fault:
+/// `refused_ack_v3` answers it with the final CONNACK return code and returns it
+/// as an `Err`, which only reaches the caller's `debug` sink (`listen_tcp` and
+/// its siblings) — nothing on the refusal path is logged above `debug`.
+///
 /// # Arguments
 /// * `scx` - Server context for accessing shared state
 /// * `sink` - MQTT v3.1.1 stream for I/O operations
@@ -77,12 +82,15 @@ where
 
         let (state, keep_alive) = match handshake(&scx, &mut sink, lid).await {
             Ok(c) => c,
-            Err((ack_code, e)) => {
-                refused_ack_v3(&scx, &mut sink, None, ack_code, e.to_string()).await?;
+            Err((ack_code, e, connect_info)) => {
+                // Raise the `ClientConnack` hook whenever the CONNECT packet was
+                // already decoded, so plugins observe a refusal exactly like a
+                // successful CONNACK (and may rewrite its reason code).
+                let err = refused_ack_v3(&scx, &mut sink, connect_info.as_deref(), ack_code, e).await;
                 if let Err(e) = sink.close().await {
-                    log::info!("{lid} close io error, {e}");
+                    log::info!("{:?} {lid} close io error, {e}", connect_info.as_deref().map(|c| c.id()));
                 }
-                return Err(e);
+                return err;
             }
         };
         (state, keep_alive)
@@ -109,7 +117,7 @@ async fn handshake<Io>(
     scx: &ServerContext,
     sink: &mut v3::MqttStream<Io>,
     lid: ListenerId,
-) -> std::result::Result<(SessionState, u16), (ConnectAckReason, Error)>
+) -> std::result::Result<(SessionState, u16), (ConnectAckReason, Error, Option<Arc<ConnectInfo>>)>
 where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
@@ -117,6 +125,7 @@ where
         return Err((
             ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable),
             anyhow!("the system is currently overloaded"),
+            None,
         ));
     }
 
@@ -124,9 +133,9 @@ where
         if invalid_client_id(&e) {
             // [MQTT-3.1.3-6] An empty ClientId with CleanSession = 0 must be
             // rejected with CONNACK return code 0x02 (Identifier Rejected).
-            (ConnectAckReason::V3(ConnectAckReasonV3::IdentifierRejected), e)
+            (ConnectAckReason::V3(ConnectAckReasonV3::IdentifierRejected), e, None)
         } else {
-            (ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e)
+            (ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e, None)
         }
     })?;
 
@@ -156,6 +165,7 @@ where
             return Err((
                 ConnectAckReason::V3(ConnectAckReasonV3::IdentifierRejected),
                 MqttError::IdentifierRejected.into(),
+                None,
             ));
         }
     }
@@ -176,22 +186,27 @@ where
             let session_present = state
                 .session_present()
                 .await
-                .map_err(|e| (ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e))?;
+                .map_err(|e| (ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e, None))?;
             sink.send_connect_ack(ConnectAckReasonV3::ConnectionAccepted, session_present)
                 .await
-                .map_err(|e| (ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e))?;
+                .map_err(|e| (ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e, None))?;
             Ok((state, keep_alive))
         }
-        Ok(Err((ack_code, e))) => {
-            log::info!("{id:?} Connection Refused, handshake error, reason: {ack_code:?}, {e}");
-            Err((ack_code, e))
+        Ok(Err((ack_code, e, connect_info))) => {
+            // `debug`: a refused handshake is an expected outcome rather than a
+            // fault, and the funnel below returns it to a caller that logs it at
+            // `debug` as well.
+            log::debug!("{id:?} Connection Refused, handshake error, reason: {ack_code:?}, {e}");
+            // Forward the decoded client information, so that the refusal below
+            // can still raise the `ClientConnack` hook (see `refused_ack_v3`).
+            Err((ack_code, e, connect_info))
         }
         Err(e) => {
             #[cfg(feature = "metrics")]
             scx.metrics.client_handshaking_timeout_inc();
             let err = anyhow!("Connection Refused, execute handshake timeout");
-            log::info!("{:?} {:?}, reason: {:?}", id, err, e.to_string(),);
-            Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), err))
+            log::debug!("{:?} {:?}, reason: {:?}", id, err, e.to_string(),);
+            Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), err, None))
         }
     }
 }
@@ -203,16 +218,28 @@ async fn _handshake(
     connect: Box<ConnectV3>,
     listen_cfg: ListenerConfig,
     hdshk_start: std::time::Instant,
-) -> std::result::Result<(SessionState, u16), (ConnectAckReason, Error)> {
-    let connect_info = ConnectInfo::V3(id.clone(), connect);
+) -> std::result::Result<(SessionState, u16), (ConnectAckReason, Error, Option<Arc<ConnectInfo>>)> {
+    // The handshake error carries this `Arc` back to the caller, so that
+    // `refused_ack_v3` can raise the `ClientConnack` hook for a refused client;
+    // on success the session shares the very same instance.
+    let connect_info = Arc::new(ConnectInfo::V3(id.clone(), connect));
 
     //hook, client connect
-    let _ = scx.extends.hook_mgr().client_connect(&connect_info).await;
+    // A refusal here is answered before the Client is authenticated and before
+    // the existing session of the same ClientId is taken over.
+    if let Some(refuse) = scx.extends.hook_mgr().client_connect(&connect_info).await {
+        return Err((
+            ConnectAckReason::V3(refuse.to_v3()),
+            anyhow!("Connection Refused, refused by the client_connect hook"),
+            Some(connect_info.clone()),
+        ));
+    }
 
     if hdshk_start.elapsed() > listen_cfg.handshake_timeout {
         return Err((
             ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable),
             anyhow!("handshake timeout"),
+            Some(connect_info.clone()),
         ));
     }
 
@@ -221,6 +248,7 @@ async fn _handshake(
         return Err((
             ConnectAckReason::V3(ConnectAckReasonV3::IdentifierRejected),
             anyhow!("client_id is too long"),
+            Some(connect_info.clone()),
         ));
     }
 
@@ -230,6 +258,7 @@ async fn _handshake(
         return Err((
             ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable),
             anyhow!(format!("the number of sessions on the current node exceeds the limit, with a maximum of {} sessions allowed", max_sessions)),
+            Some(connect_info.clone()),
         ));
     }
 
@@ -237,12 +266,16 @@ async fn _handshake(
     let (ack, superuser, auth_info) =
         scx.extends.hook_mgr().client_authenticate(&connect_info, listen_cfg.allow_anonymous).await;
     if !ack.success() {
-        return Err((ack, anyhow!("Authentication failed")));
+        return Err((ack, anyhow!("Authentication failed"), Some(connect_info.clone())));
     }
 
     let mut entry = match { scx.extends.shared().await.entry(id.clone()) }.try_lock().await {
         Err(e) => {
-            return Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e));
+            return Err((
+                ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable),
+                e,
+                Some(connect_info.clone()),
+            ));
         }
         Ok(entry) => entry,
     };
@@ -252,7 +285,11 @@ async fn _handshake(
     let (session_present, _has_offline_session, offline_info) =
         match entry.kick(clean_session, clean_session, false).await {
             Err(e) => {
-                return Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e));
+                return Err((
+                    ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable),
+                    e,
+                    Some(connect_info.clone()),
+                ));
             }
             Ok(OfflineSession::NotExist) => (false, false, None),
             Ok(OfflineSession::Exist(Some(offline_info))) => (!clean_session, true, Some(offline_info)),
@@ -260,8 +297,6 @@ async fn _handshake(
         };
 
     let connected_at = timestamp_millis();
-
-    let connect_info = Arc::new(connect_info);
 
     log::debug!("{id:?} offline_info: {offline_info:?}");
     let created_at =
@@ -294,7 +329,11 @@ async fn _handshake(
     {
         Ok(s) => s,
         Err(e) => {
-            return Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e));
+            return Err((
+                ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable),
+                e,
+                Some(connect_info.clone()),
+            ));
         }
     };
 
@@ -302,7 +341,11 @@ async fn _handshake(
     let keep_alive = match session.fitter.keep_alive(&mut keep_alive) {
         Ok(keep_alive) => keep_alive,
         Err(e) => {
-            return Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e));
+            return Err((
+                ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable),
+                e,
+                Some(connect_info.clone()),
+            ));
         }
     };
 
@@ -316,7 +359,11 @@ async fn _handshake(
     let state = SessionState::new(session, hook, 0, 0);
 
     if let Err(e) = entry.set(state.session().clone(), state.tx().clone()).await {
-        return Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e));
+        return Err((
+            ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable),
+            e,
+            Some(connect_info.clone()),
+        ));
     }
 
     //hook, client connack
@@ -333,7 +380,11 @@ async fn _handshake(
     //transfer session state
     if let Some(o) = offline_info {
         if let Err(e) = state.tx().unbounded_send(Message::SessionStateTransfer(o, clean_session)) {
-            return Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e.into()));
+            return Err((
+                ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable),
+                e.into(),
+                Some(connect_info.clone()),
+            ));
         }
     }
 
@@ -343,10 +394,20 @@ async fn _handshake(
         let auto_subscription = state.scx.extends.auto_subscription().await;
         if auto_subscription.enable() {
             match auto_subscription.subscribes(state.id()).await {
-                Err(e) => return Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e)),
+                Err(e) => {
+                    return Err((
+                        ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable),
+                        e,
+                        Some(connect_info.clone()),
+                    ))
+                }
                 Ok(subs) => {
                     if let Err(e) = state.tx().unbounded_send(Message::Subscribes(subs, None)) {
-                        return Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e.into()));
+                        return Err((
+                            ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable),
+                            e.into(),
+                            Some(connect_info.clone()),
+                        ));
                     }
                 }
             }
@@ -355,32 +416,59 @@ async fn _handshake(
     Ok((state, keep_alive))
 }
 
+/// Refuse a handshake: raises the `ClientConnack` hook when the CONNECT packet
+/// was already decoded, then answers with the resulting reason code.
+///
+/// `connect_info` is the client information decoded by `_handshake`, shared (not
+/// copied) with the error path, and `None` for failures that happen before the
+/// CONNECT packet is decoded — an undecodable CONNECT, an overloaded node, or a
+/// handshake task that timed out; only those refusals skip the hook.
+///
+/// The refusal is logged nowhere above `debug`: it is returned as an `Err`, so
+/// the caller reports it at `debug` along with the rest of the refusal path.
 async fn refused_ack_v3<Io>(
     scx: &ServerContext,
     sink: &mut v3::MqttStream<Io>,
     connect_info: Option<&ConnectInfo>,
     ack_code: ConnectAckReason,
-    reason: String,
+    reason: Error,
 ) -> Result<()>
 where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
     let new_ack_code = if let Some(connect_info) = connect_info {
-        scx.extends.hook_mgr().client_connack(connect_info, ack_code).await
+        let new_ack_code = scx.extends.hook_mgr().client_connack(connect_info, ack_code).await;
+        // A refusal must stay a refusal: an upgraded (successful) reason code
+        // would make the broker send CONNACK 0x00 and then drop the connection
+        // without ever creating a session.
+        if new_ack_code.success() {
+            ack_code
+        } else {
+            new_ack_code
+        }
     } else {
         ack_code
     };
-    log::info!(
+    let err = anyhow!(format!(
         "{:?} Connection Refused, handshake, ack_code: {:?}, new_ack_code: {:?}, reason: {}",
         connect_info.map(|c| c.id()),
         ack_code,
         new_ack_code,
         reason
-    );
+    ));
     let new_ack_code = if let ConnectAckReason::V3(ack_code) = new_ack_code {
         ack_code
     } else {
         ConnectAckReasonV3::ServiceUnavailable
     };
-    sink.send_connect_ack(new_ack_code, false).await
+    // Answer with the final CONNACK return code, then hand the refusal back as
+    // an `Err`: it only reaches the caller's `debug` sink (`listen_tcp` and its
+    // siblings), a refused handshake being an expected outcome rather than a
+    // fault.
+    if let Err(e) = sink.send_connect_ack(new_ack_code, false).await {
+        // `debug`: the caller closes the connection right after, so a failed
+        // CONNACK is only a symptom of that.
+        log::debug!("{:?} send CONNACK error, {e}", connect_info.map(|c| c.id()));
+    }
+    Err(err)
 }

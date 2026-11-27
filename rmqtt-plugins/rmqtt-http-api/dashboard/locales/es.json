@@ -128,6 +128,7 @@
     "messages_publish": "Mensajes publicados",
     "messages_delivered": "Mensajes entregados",
     "messages_discarded": "Mensajes descartados",
+    "offline_saves_dropped": "Guardados sin conexión descartados",
     "subscriptions_count": "Suscripciones",
     "shared_subscriptions_count": "Suscripciones compartidas",
     "status_title": "Status",
@@ -154,6 +155,7 @@
     "features_delayed": "Mensajes diferidos",
     "features_shared_subscription": "Suscripciones compartidas",
     "features_auto_subscription": "Suscripción automática",
+    "features_flapping": "Protección contra flapping",
     "features_tab_title": "Soporte de funciones"
   },
   "gauge": {
@@ -302,7 +304,8 @@
     "dashboard": "Dashboard",
     "confirm": "Confirmar",
     "cancel": "Cancelar",
-    "confirm_title": "Confirmación"
+    "confirm_title": "Confirmación",
+    "copy": "Copiar"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +355,43 @@
     "delete": "Eliminar",
     "delete_confirm": "¿Eliminar el mensaje retenido para el tema {topic}?",
     "delete_fail": "Error al eliminar: {msg}"
+  },
+  "delayed": {
+    "not_enabled": "La publicación retrasada no está habilitada (cargue el complemento rmqtt-delayed)",
+    "topic_filter_placeholder": "Filtro de tema (p. ej. sensor/#, vacío = todos)",
+    "topic": "Tema",
+    "delay_interval": "Intervalo de retraso",
+    "fire_time": "Hora de disparo",
+    "remaining": "Restante",
+    "client_id": "ID de cliente",
+    "username": "Nombre de usuario",
+    "payload_size": "Tamaño del payload",
+    "node": "Nodo",
+    "payload": "Contenido del payload",
+    "not_found": "El mensaje ya se disparó o ya no existe",
+    "no_results": "No hay publicaciones retrasadas",
+    "view_payload": "Ver Payload"
+  },
+  "flapping": {
+    "not_enabled": "La protección contra flapping no está activada (cargue el plugin rmqtt-flapping o defina enable = true)",
+    "node_local": "Los bloqueos son locales del nodo; esta lista solo refleja el nodo que responde",
+    "banned_count": "Bloqueos vigentes",
+    "dimension": "Dimensión",
+    "dimension_all": "Todas las dimensiones",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "Usuario",
+    "dimension_peerhost": "Dirección de origen",
+    "key": "Clave",
+    "key_placeholder": "Clave (coincidencia exacta, p. ej. ClientID / usuario / IP)",
+    "count": "Intentos",
+    "banned_at": "Bloqueado el",
+    "banned_until": "Bloqueado hasta",
+    "remaining": "Restante",
+    "last_clientid": "Último ClientID",
+    "last_ipaddress": "Última dirección de origen",
+    "unban": "Desbloquear",
+    "unban_confirm": "¿Levantar el bloqueo de {dimension} «{key}»?",
+    "unban_fail": "Error al desbloquear: {msg}",
+    "no_results": "No hay bloqueos vigentes"
   }
 }

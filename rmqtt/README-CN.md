@@ -34,6 +34,7 @@ rmqtt/src/
 ├── v5.rs           — MQTT v5.0 协议处理器
 │
 ├── delayed.rs      — [feature: delayed] 延迟消息发布
+├── flapping.rs     — [feature: flapping] 连接门禁的读视图（生效中的封禁）
 ├── grpc.rs         — [feature: grpc] gRPC 节点间通信
 ├── message.rs      — [feature: msgstore] 消息存储子系统
 ├── metrics.rs      — [feature: metrics] 指标收集
@@ -55,6 +56,7 @@ rmqtt/src/
 | `ws` | rmqtt-net/ws | WebSocket 传输 |
 | `quic` | rmqtt-net/quic | QUIC 传输 |
 | `delayed` | — | 延迟消息发布 |
+| `flapping` | — | 连接门禁读视图（供插件与 HTTP API 读取生效中的封禁） |
 | `retain` | — | 保留消息存储 |
 | `msgstore` | — | 消息持久化 |
 | `shared-subscription` | — | 共享订阅（$share/） |

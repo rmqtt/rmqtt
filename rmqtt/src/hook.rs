@@ -25,7 +25,7 @@
 //!
 //! ## Key Features
 //! - Protocol version specific handling (v3.1, v3.1.1, v5)
-//! - Priority-based handler ordering (0=highest)
+//! - Priority-based handler ordering (higher value = higher priority)
 //! - Atomic hook registration/enabling
 //! - Session-aware processing context
 //! - Comprehensive result type system
@@ -42,8 +42,10 @@
 //! 2. Register via `HookManager::register()`
 //! 3. Process hook results via `HookResult` enum
 //!
-//! Note: All hooks are executed in reverse priority order (high to low)
-//! until a handler returns `proceed=false`.
+//! Note: Handlers are dispatched in descending priority order (numerically
+//! highest `Priority` value first). Handlers sharing the same priority are
+//! dispatched in unspecified order. The chain runs until a handler returns
+//! `proceed=false`.
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
@@ -56,24 +58,25 @@ use uuid::Uuid;
 
 use crate::acl::AuthInfo;
 use crate::codec::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
-use crate::codec::v5::UserProperties;
 use crate::codec::{v3, v5};
 #[cfg(feature = "grpc")]
 use crate::grpc;
 use crate::inflight::OutInflightMessage;
 use crate::session::Session;
 use crate::types::{
-    AuthResult, ConnectAckReason, ConnectInfo, DashMap, DashSet, From, IsPing, MessageExpiryCheckResult,
-    Publish, PublishAclResult, Reason, Subscribe, SubscribeAclResult, Superuser, To, TopicFilter,
-    Unsubscribe,
+    AuthResult, ConnectAckReason, ConnectInfo, ConnectRefuse, DashMap, DashSet, From, IsPing,
+    MessageExpiryCheckResult, Publish, PublishAclResult, Reason, Subscribe, SubscribeAclResult, Superuser,
+    To, TopicFilter, Unsubscribe,
 };
 use crate::utils::timestamp_millis;
 use crate::Result;
 
 /// Hook handler priority value.
 ///
-/// Lower numerical values indicate higher priority.
-/// Priority 0 is the highest (executed first).
+/// Higher numerical values indicate higher priority: a handler registered
+/// with a larger `Priority` is dispatched before handlers with smaller
+/// values. The default priority of `0` is the *lowest*. Handlers sharing
+/// the same priority are dispatched in unspecified order.
 pub type Priority = u32;
 
 /// Whether hook chain execution should continue.
@@ -99,7 +102,8 @@ pub type ReturnType = (Proceed, Option<HookResult>);
 ///
 /// 1. A session-level event occurs (e.g., connect, publish, subscribe).
 /// 2. [`HookManager`] dispatches to the appropriate hook [`Type`].
-/// 3. Registered handlers execute in reverse priority order (highest first).
+/// 3. Registered handlers execute in descending priority order (numerically
+///    highest `Priority` value first).
 /// 4. Each handler receives the accumulated result from previous handlers.
 /// 5. If any handler returns `proceed=false`, execution short-circuits.
 /// 6. The final result is returned to the caller.
@@ -128,11 +132,25 @@ pub trait HookManager: Sync + Send {
     /// complete before the broker begins operation.
     async fn before_startup(&self);
 
-    /// Triggered when a CONNECT packet is received from a client.
+    /// Triggered when a CONNECT packet is received from a client, before the
+    /// client is authenticated.
     ///
-    /// Returns optional [`UserProperties`] that will be included
-    /// in the CONNACK response to the client.
-    async fn client_connect(&self, connect_info: &ConnectInfo) -> Option<UserProperties>;
+    /// Returning `Some(reason)` refuses the connection: the Client is answered
+    /// with the reason code its protocol version defines (see
+    /// [`ConnectRefuse`]), no session is created, and the existing session of
+    /// the same ClientId is not taken over. `None` lets the handshake continue.
+    ///
+    /// This is the only hook a Client that sends no username reaches while
+    /// `allow_anonymous` is enabled: `client_authenticate` short-circuits for
+    /// those connections and never runs its chain, so a policy that must see
+    /// every connection attempt belongs here.
+    ///
+    /// # Handler Chain
+    ///
+    /// A handler that refuses must return `proceed = false` along with the
+    /// refusal: the accumulated result of a chain is a single slot, so a
+    /// handler running later would otherwise overwrite it.
+    async fn client_connect(&self, connect_info: &ConnectInfo) -> Option<ConnectRefuse>;
 
     /// Authenticate a connecting client.
     ///
@@ -146,10 +164,17 @@ pub trait HookManager: Sync + Send {
         allow_anonymous: bool,
     ) -> (ConnectAckReason, Superuser, Option<AuthInfo>);
 
-    /// Triggered when a CONNACK is about to be sent to the client.
+    /// Triggered before a CONNACK is sent to the client, no matter whether the
+    /// connection is accepted or refused.
     ///
     /// Allows inspection or modification of the connection
     /// acknowledgment reason code before it is transmitted.
+    ///
+    /// Refusals that happen before the CONNECT packet is decoded — an
+    /// undecodable packet, an overloaded node, or a handshake timeout — do not
+    /// raise this hook. A refusal stays a refusal: a handler that answers a
+    /// refusal with a successful reason code cannot turn it into an accepted
+    /// connection.
     async fn client_connack(
         &self,
         connect_info: &ConnectInfo,
@@ -194,14 +219,17 @@ pub trait HookManager: Sync + Send {
 /// Handlers are not active until `start()` is called.
 #[async_trait]
 pub trait Register: Sync + Send {
-    /// Register a handler with default priority (0, highest).
+    /// Register a handler with the default priority (0, the lowest).
+    ///
+    /// Handlers with higher priorities are dispatched first.
     async fn add(&self, typ: Type, handler: Box<dyn Handler>) {
         self.add_priority(typ, 0, handler).await;
     }
 
     /// Register a handler with a specific priority level.
     ///
-    /// Lower priority values execute first.
+    /// Higher priority values execute first. Handlers sharing the same
+    /// priority execute in unspecified order.
     async fn add_priority(&self, typ: Type, priority: Priority, handler: Box<dyn Handler>);
 
     /// Activate all registered handlers.
@@ -561,8 +589,9 @@ impl Parameter<'_> {
 /// be treated as "no modification" by convention.
 #[derive(Debug)]
 pub enum HookResult {
-    /// User properties returned from a `ClientConnect` hook.
-    UserProperties(UserProperties),
+    /// A refusal a `ClientConnect` hook asks for; the broker maps it to the
+    /// reason code the Client's protocol version defines.
+    ConnectRefuse(ConnectRefuse),
     /// Authentication result from a `ClientAuthenticate` hook.
     AuthResult(AuthResult),
     /// Modified connection acknowledgment reason code.
@@ -614,9 +643,10 @@ type HandlerId = String;
 ///
 /// # Handler Execution
 ///
-/// Handlers are executed in reverse BTreeMap order (highest priority first).
-/// Each handler receives the accumulated result from prior handlers.
-/// If any handler returns `proceed = false`, the chain short-circuits.
+/// Handlers are executed in reverse BTreeMap order, i.e. numerically
+/// highest `Priority` value first. Each handler receives the accumulated
+/// result from prior handlers. If any handler returns `proceed = false`,
+/// the chain short-circuits.
 #[derive(Clone)]
 pub struct DefaultHookManager {
     #[allow(clippy::type_complexity)]
@@ -689,11 +719,11 @@ impl HookManager for DefaultHookManager {
     }
 
     #[inline]
-    async fn client_connect(&self, connect_info: &ConnectInfo) -> Option<UserProperties> {
+    async fn client_connect(&self, connect_info: &ConnectInfo) -> Option<ConnectRefuse> {
         let result = self.exec(Type::ClientConnect, Parameter::ClientConnect(connect_info)).await;
         log::debug!("{:?} result: {:?}", connect_info.id(), result);
-        if let Some(HookResult::UserProperties(props)) = result {
-            Some(props)
+        if let Some(HookResult::ConnectRefuse(refuse)) = result {
+            Some(refuse)
         } else {
             None
         }
@@ -765,7 +795,7 @@ impl HookManager for DefaultHookManager {
         (ok(), false, None)
     }
 
-    ///When sending mqtt:: connectack message
+    ///When sending a CONNACK message (accepted or refused connection)
     async fn client_connack(
         &self,
         connect_info: &ConnectInfo,
@@ -1077,5 +1107,86 @@ impl Hook for DefaultHook {
     #[inline]
     async fn client_keepalive(&self, ping: IsPing) {
         let _ = self.manager.exec(Type::ClientKeepalive, Parameter::ClientKeepalive(&self.s, ping)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ClientId, Id};
+
+    /// Stands in for a gate plugin: it refuses the connection and stops the
+    /// chain, which is what `client_connect`'s documentation requires.
+    struct RefuseHandler(ConnectRefuse);
+
+    #[async_trait]
+    impl Handler for RefuseHandler {
+        async fn hook(&self, param: &Parameter, _acc: Option<HookResult>) -> ReturnType {
+            match param {
+                Parameter::ClientConnect(_) => (false, Some(HookResult::ConnectRefuse(self.0))),
+                _ => (true, None),
+            }
+        }
+    }
+
+    /// Stands in for a plugin that only observes the event.
+    struct ObserveHandler;
+
+    #[async_trait]
+    impl Handler for ObserveHandler {
+        async fn hook(&self, _param: &Parameter, acc: Option<HookResult>) -> ReturnType {
+            (true, acc)
+        }
+    }
+
+    fn connect_info() -> ConnectInfo {
+        ConnectInfo::V3(
+            Id::new(0, 1883, None, None, ClientId::from("connect-hook-test".to_owned()), None),
+            Box::default(),
+        )
+    }
+
+    async fn manager_with(handlers: Vec<(Priority, Box<dyn Handler>)>) -> DefaultHookManager {
+        let manager = DefaultHookManager::new();
+        let register = manager.register();
+        for (priority, handler) in handlers {
+            register.add_priority(Type::ClientConnect, priority, handler).await;
+        }
+        register.start().await;
+        manager
+    }
+
+    #[tokio::test]
+    async fn client_connect_accepts_when_nothing_is_registered() {
+        let manager = manager_with(Vec::new()).await;
+        assert_eq!(manager.client_connect(&connect_info()).await, None);
+    }
+
+    #[tokio::test]
+    async fn client_connect_accepts_when_handlers_only_observe() {
+        let manager = manager_with(vec![(0, Box::new(ObserveHandler))]).await;
+        assert_eq!(manager.client_connect(&connect_info()).await, None);
+    }
+
+    #[tokio::test]
+    async fn client_connect_returns_the_refusal() {
+        let manager = manager_with(vec![(0, Box::new(RefuseHandler(ConnectRefuse::Banned)))]).await;
+        assert_eq!(manager.client_connect(&connect_info()).await, Some(ConnectRefuse::Banned));
+    }
+
+    #[tokio::test]
+    async fn client_connect_keeps_the_refusal_of_the_highest_priority_handler() {
+        // The refusal short-circuits the chain, so the handler registered at
+        // the lower priority never runs and cannot overwrite the single slot
+        // holding the accumulated result.
+        let manager = manager_with(vec![
+            (10, Box::new(RefuseHandler(ConnectRefuse::ConnectionRateExceeded))),
+            (0, Box::new(ObserveHandler)),
+        ])
+        .await;
+        assert_eq!(
+            manager.client_connect(&connect_info()).await,
+            Some(ConnectRefuse::ConnectionRateExceeded)
+        );
     }
 }

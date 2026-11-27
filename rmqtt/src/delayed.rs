@@ -1,9 +1,7 @@
 //! Delayed Message Publishing System
 //!
-//! Implements MQTT's delayed message delivery mechanism with:
-//! - Time-based message scheduling
-//! - Priority queue for efficient expiration handling
-//! - Configurable storage limits
+//! Defines the [`DelayedSender`] extension trait and the placeholder
+//! [`DefaultDelayedSender`] used before the `rmqtt-delayed` plugin starts.
 //!
 //! ## Core Functionality
 //! 1. ​**​Topic Parsing​**​:
@@ -11,50 +9,40 @@
 //!    - Extracts delay intervals from topic strings
 //!    - Validates delay parameter formatting
 //!
-//! 2. ​**​Message Scheduling​**​:
-//!    - Maintains time-ordered priority queue (BinaryHeap)
-//!    - Periodic expiration checks (500ms intervals)
+//! 2. ​**​Message Scheduling​**​ (provided by the `rmqtt-delayed` plugin):
+//!    - Time-ordered priority queue (BinaryHeap)
+//!    - Periodic expiration checks
 //!    - Automatic forwarding of expired messages
 //!
-//! 3. ​**​Resource Management​**​:
-//!    - Enforces maximum delayed message limit
-//!    - Tracks statistics through ServerContext
-//!    - Provides atomic length checks
-//!
 //! ## Implementation Details
-//! - Uses RwLock for thread-safe queue operations
-//! - Tokio-based async task for background processing  
-//! - Zero-copy topic parsing with Vec allocation
-//! - Graceful handling of storage limits
-//!
-//! Typical workflow:
-//! 1. Parse incoming publish for delay parameters
-//! 2. Schedule message if within limits
-//! 3. Background task forwards expired messages
-//! 4. Statistics updated throughout lifecycle
+//! - The placeholder implementation is a no-op: the feature reports disabled,
+//!   `parse` returns the publish unchanged and `delay_publish` passes the
+//!   message through, so `$delayed/...` topics are treated as literal topics.
+//! - Metadata types ([`DelayedPublishInfo`], [`DelayedPublishDetail`]) are
+//!   shared with the HTTP API and stay in `crate::types`.
 
-use std::collections::BinaryHeap;
-use std::ops::DerefMut;
-use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::anyhow;
 use async_trait::async_trait;
-use tokio::sync::RwLock;
 
-use crate::context::ServerContext;
-use crate::session::SessionState;
-use crate::types::{DelayedPublish, From, Publish, TopicName};
+use crate::types::{DelayedPublishDetail, DelayedPublishInfo, From, Publish, TimestampMillis};
 use crate::Result;
 
 /// Trait for delayed message publishing using the `$delayed/<interval>/<topic>` topic scheme.
 ///
 /// Implementors parse delay parameters from topic strings, schedule messages
-/// for future delivery, and provide access to the pending message count.
+/// for future delivery, and provide access to pending messages (metadata and,
+/// through [`Self::find`], the full payload).
+///
+/// The real implementation (`MemDelayedSender`) lives in the `rmqtt-delayed`
+/// plugin and is injected through `extends.delayed_sender_mut()` on plugin
+/// start. Before that, [`DefaultDelayedSender`] is in place: the feature
+/// reports disabled and all operations are no-ops.
 #[async_trait]
 pub trait DelayedSender: Sync + Send {
     /// Whether delayed message publishing is enabled. Defaults to `false`
-    /// (the default implementation is a no-op).
+    /// (the default implementation is a no-op). For `MemDelayedSender` this
+    /// is `true` once the `rmqtt-delayed` plugin has been started.
     #[inline]
     fn enable(&self) -> bool {
         false
@@ -63,7 +51,14 @@ pub trait DelayedSender: Sync + Send {
     ///Parse the topic and extract the delayed sending parameters.
     fn parse(&self, publish: Publish) -> Result<Publish>;
 
-    ///Delayed publish
+    ///Schedule the message for delayed delivery.
+    ///
+    /// Returns `Ok(None)` when the sender handled the message: either it was
+    /// scheduled for future delivery, or it was refused (e.g. over capacity)
+    /// and dropped by the sender — in the latter case the sender fires the
+    /// `message_dropped` hook itself (with `Reason::DelayedPublishRefused`).
+    /// Returns `Ok(Some((from, publish)))` when the message was not scheduled
+    /// and the caller should forward it immediately as a regular message.
     async fn delay_publish(
         &self,
         from: From,
@@ -75,106 +70,60 @@ pub trait DelayedSender: Sync + Send {
     ///Delayed message count
     async fn len(&self) -> usize;
 
+    /// List pending delayed messages matching an optional MQTT topic filter
+    /// (`#`/`+` wildcards; matched against the target topic with the
+    /// `$delayed/<interval>/` prefix already stripped). Returns at most `max`
+    /// entries sorted by trigger time (oldest first). Payload content is never
+    /// included. The default impl returns an empty vec (feature disabled).
+    #[inline]
+    async fn list(&self, topic_filter: Option<&str>, max: usize) -> Vec<DelayedPublishInfo> {
+        let _ = (topic_filter, max);
+        Vec::new()
+    }
+
+    /// Find one pending delayed publish by its composite key
+    /// `(target topic, trigger timestamp, optional publisher client id)` and
+    /// return it with the full payload content. Returns the first match when
+    /// several entries share the same key (no stable id in the heap).
+    /// The default impl returns `None` (feature disabled).
+    #[inline]
+    async fn find(
+        &self,
+        _topic: &str,
+        _expired_time: TimestampMillis,
+        _client_id: Option<&str>,
+    ) -> Option<DelayedPublishDetail> {
+        None
+    }
+
     #[inline]
     async fn is_empty(&self) -> bool {
         self.len().await == 0
     }
 }
 
-/// Default implementation of the delayed message sender.
+/// Placeholder implementation used before the `rmqtt-delayed` plugin starts.
 ///
-/// Uses a priority queue (binary heap) to manage time-based delayed publishes,
-/// with a background task that periodically forwards expired messages.
-#[derive(Clone)]
-pub struct DefaultDelayedSender {
-    scx: Option<ServerContext>,
-    msgs: Arc<RwLock<BinaryHeap<DelayedPublish>>>,
-}
+/// All operations are no-ops: the feature reports disabled (`enable()` is
+/// `false`, so the session skips `$delayed` parsing entirely) and pending
+/// message queries return empty results. On plugin start the plugin swaps this
+/// placeholder for its own `MemDelayedSender` through
+/// `extends.delayed_sender_mut()`.
+#[derive(Clone, Default)]
+pub struct DefaultDelayedSender;
 
 impl DefaultDelayedSender {
-    /// Creates a new delayed sender and starts the background expiration task.
+    /// Creates the placeholder sender.
     #[inline]
-    pub fn new(scx: Option<ServerContext>) -> DefaultDelayedSender {
-        Self { scx, msgs: Arc::new(RwLock::new(BinaryHeap::default())) }.start()
-    }
-
-    #[inline]
-    pub(crate) fn context(&self) -> &ServerContext {
-        if let Some(scx) = &self.scx {
-            scx
-        } else {
-            unreachable!()
-        }
-    }
-
-    fn start(self) -> Self {
-        let s = self.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                loop {
-                    let is_expired =
-                        if let Some(is_expired) = s.msgs.read().await.peek().map(|p| p.is_expired()) {
-                            is_expired
-                        } else {
-                            break;
-                        };
-                    if is_expired {
-                        if let Some(dp) = s.msgs.write().await.pop() {
-                            log::debug!("pop {:?} {:?}", dp.expired_time, dp.publish.topic);
-                            Self::send(s.context(), dp).await;
-                        } else {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-            }
-        });
-        self
-    }
-
-    #[inline]
-    async fn send(scx: &ServerContext, mut dp: DelayedPublish) {
-        dp.publish.delay_interval = None;
-        if let Err(e) = SessionState::inner_forwards(
-            scx,
-            dp.from,
-            dp.publish,
-            dp.message_storage_available,
-            dp.message_expiry_interval,
-        )
-        .await
-        {
-            log::warn!("delayed forwards error, {e}");
-        }
+    pub fn new() -> Self {
+        Self
     }
 }
 
 #[async_trait]
 impl DelayedSender for DefaultDelayedSender {
     #[inline]
-    fn enable(&self) -> bool {
-        true
-    }
-
-    #[inline]
-    fn parse(&self, mut publish: Publish) -> Result<Publish> {
-        let items = publish.topic.splitn(3, '/').collect::<Vec<_>>();
-        if let (Some(&"$delayed"), Some(delay_interval), Some(topic)) =
-            (items.first(), items.get(1), items.get(2))
-        {
-            let topic = TopicName::from(*topic);
-            let interval_s = delay_interval.parse().map_err(|e| {
-                anyhow!(format!(
-                    "the delay time of $delayed must be an integer, topic: {}, {}",
-                    publish.topic, e
-                ))
-            })?;
-            publish.delay_interval = Some(interval_s);
-            publish.deref_mut().topic = topic;
-        }
+    fn parse(&self, publish: Publish) -> Result<Publish> {
         Ok(publish)
     }
 
@@ -183,22 +132,16 @@ impl DelayedSender for DefaultDelayedSender {
         &self,
         from: From,
         publish: Publish,
-        message_storage_available: bool,
-        message_expiry_interval: Option<Duration>,
+        _message_storage_available: bool,
+        _message_expiry_interval: Option<Duration>,
     ) -> Result<Option<(From, Publish)>> {
-        let mut msgs = self.msgs.write().await;
-        if msgs.len() < self.context().mqtt_delayed_publish_max {
-            msgs.push(DelayedPublish::new(from, publish, message_storage_available, message_expiry_interval));
-            #[cfg(feature = "stats")]
-            self.context().stats.delayed_publishs.max_max(msgs.len() as isize);
-            Ok(None)
-        } else {
-            Ok(Some((from, publish)))
-        }
+        // Unreachable through the session path (the feature reports disabled),
+        // pass the message through unchanged for safety.
+        Ok(Some((from, publish)))
     }
 
     #[inline]
     async fn len(&self) -> usize {
-        self.msgs.read().await.len()
+        0
     }
 }

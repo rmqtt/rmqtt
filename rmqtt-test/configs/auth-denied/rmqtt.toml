@@ -1,0 +1,85 @@
+##--------------------------------------------------------------------
+## rmqttd config for the CONNACK return-code tests (G13, MQTT-3.2.2.3)
+##
+## This config loads the `rmqtt-auth-http` plugin and disables anonymous
+## access, so every CONNECT goes through the HTTP authentication hook:
+##   - the mock auth server replies "allow"  -> CONNACK 0x00
+##   - the mock auth server replies "deny"   -> CONNACK 0x04 (BadUserNameOrPassword)
+##
+## The broker is spawned by the test itself
+## (`connack_return_codes_v311.rs`) on port 1892 (avoids the harness 1883,
+## cluster 1886-1890, cleanup 1884 and rl-boundary 1891); the HTTP mock auth
+## server runs inside the test on 127.0.0.1:9099.
+##
+## Usage (run from the rmqtt repository root so that `plugins.dir`
+## resolves correctly); the broker is started by the test, no manual start
+## needed:
+##   cargo build -p rmqttd && cargo build -p rmqtt-test
+##   ./target/release/mqtt_harness --workspace . --suites functional_v311
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+node.id = 1
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## RPC (port avoids harness 5363 / cluster 5366-5370 / cleanup 5364 /
+## rl-boundary 5365)
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5371"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Log
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "."
+log.file = "rmqtt.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+# Self-contained: plugin configs live in this directory's plugins/ sub-dir.
+plugins.dir = "rmqtt-test/configs/auth-denied/plugins/"
+plugins.default_startups = [
+    "rmqtt-auth-http",
+]
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter", "rmqtt-http-api"]
+
+##--------------------------------------------------------------------
+## Listener (external TCP only)
+##--------------------------------------------------------------------
+listener.tcp.external.addr = "127.0.0.1:1892"
+listener.tcp.external.workers = 8
+listener.tcp.external.max_connections = 1024000
+listener.tcp.external.max_handshaking_limit = 500
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1MB"
+listener.tcp.external.backlog = 1024
+# Anonymous access disabled: every CONNECT must pass the auth-http hook.
+listener.tcp.external.allow_anonymous = false
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled (would clash with other suites)
+##--------------------------------------------------------------------
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false

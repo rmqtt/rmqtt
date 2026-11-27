@@ -196,7 +196,8 @@ Response example:
         "session_storage": false,
         "delayed": true,
         "shared_subscription": true,
-        "auto_subscription": false
+        "auto_subscription": false,
+        "flapping": false
       }
     }
   ]

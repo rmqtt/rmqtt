@@ -42,6 +42,69 @@ fn raw_connect_bytes(
     pkt
 }
 
+/// Build a raw CONNECT packet with optional Will / User Name / Password.
+///
+/// The CONNECT payload field order is fixed by [MQTT-3.1.3-1]:
+/// Client Identifier -> Will Topic -> Will Message -> User Name -> Password.
+/// Optional fields are appended only when their `Option` is `Some`; callers
+/// must ensure the connect flags match the supplied fields.
+#[allow(clippy::too_many_arguments)]
+fn raw_connect_full(
+    protocol_name: &[u8],
+    protocol_level: u8,
+    connect_flags: u8,
+    keep_alive: u16,
+    client_id: &[u8],
+    will_topic: Option<&[u8]>,
+    will_message: Option<&[u8]>,
+    username: Option<&[u8]>,
+    password: Option<&[u8]>,
+) -> Vec<u8> {
+    let mut body: Vec<u8> = Vec::new();
+    body.extend_from_slice(&(protocol_name.len() as u16).to_be_bytes());
+    body.extend_from_slice(protocol_name);
+    body.push(protocol_level);
+    body.push(connect_flags);
+    body.extend_from_slice(&keep_alive.to_be_bytes());
+    // Client Identifier
+    body.extend_from_slice(&(client_id.len() as u16).to_be_bytes());
+    body.extend_from_slice(client_id);
+    // Will Topic / Will Message
+    if let Some(wt) = will_topic {
+        body.extend_from_slice(&(wt.len() as u16).to_be_bytes());
+        body.extend_from_slice(wt);
+    }
+    if let Some(wm) = will_message {
+        body.extend_from_slice(&(wm.len() as u16).to_be_bytes());
+        body.extend_from_slice(wm);
+    }
+    // User Name / Password
+    if let Some(u) = username {
+        body.extend_from_slice(&(u.len() as u16).to_be_bytes());
+        body.extend_from_slice(u);
+    }
+    if let Some(p) = password {
+        body.extend_from_slice(&(p.len() as u16).to_be_bytes());
+        body.extend_from_slice(p);
+    }
+
+    let mut pkt = vec![0x10]; // CONNECT
+    let mut len = body.len();
+    loop {
+        let mut b = (len % 128) as u8;
+        len /= 128;
+        if len > 0 {
+            b |= 0x80;
+        }
+        pkt.push(b);
+        if len == 0 {
+            break;
+        }
+    }
+    pkt.extend_from_slice(&body);
+    pkt
+}
+
 /// Send a raw CONNECT and read the broker's response.
 /// Returns `Ok(Some(return_code))` on CONNACK, `Ok(None)` when the connection
 /// was closed without a CONNACK, `Err` on I/O failure.
@@ -432,6 +495,344 @@ impl TestCase for ConnectV311LongClientIdTest {
             Ok(()) => TestResult::passed(self.name(), "functional_v311", start.elapsed()),
             Err(e) => TestResult::failed(self.name(), "functional_v311", start.elapsed(), e.to_string()),
         }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MQTT 3.1.1 CONNECT flag / encoding conformance (P0 gap fill)
+// ---------------------------------------------------------------------------
+
+/// Well-formed-UTF-8 check helper: run one CONNECT and assert the broker
+/// either rejects it (CONNACK code != 0) or closes the connection without a
+/// CONNACK — both are conformant outcomes for a malformed CONNECT.
+fn assert_connect_rejected_or_closed(
+    name: &str,
+    ctx: &TestContext,
+    start: Instant,
+    packet: &[u8],
+) -> TestResult {
+    match raw_connect_exchange(&ctx.config.broker_addr, packet) {
+        Ok(Some(0)) => TestResult::failed(
+            name,
+            "functional_v311",
+            start.elapsed(),
+            "broker accepted a malformed CONNECT".into(),
+        ),
+        Ok(Some(code)) => TestResult::passed_with_note(
+            name,
+            "functional_v311",
+            start.elapsed(),
+            &format!("broker rejected CONNECT with return code 0x{code:02x}"),
+        ),
+        Ok(None) => TestResult::passed(name, "functional_v311", start.elapsed()),
+        Err(e) => TestResult::failed(name, "functional_v311", start.elapsed(), e.to_string()),
+    }
+}
+
+/// Negative: a CONNECT whose Client Identifier contains invalid UTF-8 must
+/// not be accepted; the broker rejects it or closes the connection.
+/// [MQTT-1.5.3-1] (UTF-8 string fields must be well-formed)
+pub struct ConnectV311InvalidUtf8ClientIdTest;
+
+impl TestCase for ConnectV311InvalidUtf8ClientIdTest {
+    fn name(&self) -> &str {
+        "connect_v311_invalid_utf8_client_id"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        // overlong encoding of U+0000, a surrogate half, and a truncated
+        // multi-byte sequence — all forbidden by [MQTT-1.5.3-1]
+        let bad_ids: [&[u8]; 3] = [&[0xC0, 0x80], &[0xED, 0xA0, 0x80], &[0xE2, 0x82]];
+        for bad in bad_ids {
+            let packet = raw_connect_full(b"MQTT", 4, 0x02, 60, bad, None, None, None, None);
+            let result = assert_connect_rejected_or_closed(self.name(), ctx, start, &packet);
+            if !result.verdict.is_passed() {
+                return result;
+            }
+        }
+        TestResult::passed(self.name(), "functional_v311", start.elapsed())
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
+}
+
+/// Negative: a CONNECT whose Will Topic contains invalid UTF-8 (Will Flag
+/// set) must be rejected / the connection closed. [MQTT-1.5.3-1]
+pub struct ConnectV311InvalidUtf8WillTopicTest;
+
+impl TestCase for ConnectV311InvalidUtf8WillTopicTest {
+    fn name(&self) -> &str {
+        "connect_v311_invalid_utf8_will_topic"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let bad_topics: [&[u8]; 3] = [&[0xC0, 0x80], &[0xED, 0xA0, 0x80], &[0xE2, 0x82]];
+        for bad in bad_topics {
+            // flags = 0x02 (clean) | 0x04 (will flag)
+            let packet =
+                raw_connect_full(b"MQTT", 4, 0x06, 60, b"utf8-will", Some(bad), Some(b"msg"), None, None);
+            let result = assert_connect_rejected_or_closed(self.name(), ctx, start, &packet);
+            if !result.verdict.is_passed() {
+                return result;
+            }
+        }
+        TestResult::passed(self.name(), "functional_v311", start.elapsed())
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
+}
+
+/// Negative: a CONNECT whose User Name contains invalid UTF-8 (User Name
+/// Flag set) must be rejected / the connection closed. [MQTT-1.5.3-1]
+pub struct ConnectV311InvalidUtf8UsernameTest;
+
+impl TestCase for ConnectV311InvalidUtf8UsernameTest {
+    fn name(&self) -> &str {
+        "connect_v311_invalid_utf8_username"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let bad_names: [&[u8]; 3] = [&[0xC0, 0x80], &[0xED, 0xA0, 0x80], &[0xE2, 0x82]];
+        for bad in bad_names {
+            // flags = 0x02 (clean) | 0x80 (user name flag)
+            let packet = raw_connect_full(b"MQTT", 4, 0x82, 60, b"utf8-user", None, None, Some(bad), None);
+            let result = assert_connect_rejected_or_closed(self.name(), ctx, start, &packet);
+            if !result.verdict.is_passed() {
+                return result;
+            }
+        }
+        TestResult::passed(self.name(), "functional_v311", start.elapsed())
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
+}
+
+/// Negative: Will QoS bits must be 0 when the Will Flag is 0.
+/// [MQTT-3.1.2-13]
+///
+/// The codec rejected this case with `DecodeError::InvalidConnectFlags`
+/// (2026-08-23); previously it only validated the CONNECT reserved bit, so
+/// the broker accepted the malformed CONNECT.
+pub struct ConnectV311WillFlagZeroButQosSetTest;
+
+impl TestCase for ConnectV311WillFlagZeroButQosSetTest {
+    fn name(&self) -> &str {
+        "connect_v311_will_flag_zero_but_qos_set"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+
+        // flags = 0x02 (clean) | 0x08 (Will QoS bit 1, Will Flag = 0)
+        let pkt_qos = raw_connect_full(b"MQTT", 4, 0x0A, 60, b"will-qos-set", None, None, None, None);
+        let r1 = assert_connect_rejected_or_closed(self.name(), ctx, start, &pkt_qos);
+        if !r1.verdict.is_passed() {
+            return r1;
+        }
+
+        // flags = 0x02 (clean) | 0x20 (Will Retain, Will Flag = 0)
+        let pkt_retain = raw_connect_full(b"MQTT", 4, 0x22, 60, b"will-retain-set", None, None, None, None);
+        let r2 = assert_connect_rejected_or_closed(self.name(), ctx, start, &pkt_retain);
+        if !r2.verdict.is_passed() {
+            return r2;
+        }
+
+        TestResult::passed(self.name(), "functional_v311", start.elapsed())
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
+}
+
+/// Negative: Will QoS = 3 is illegal even when the Will Flag is set.
+/// [MQTT-3.1.2-14]
+pub struct ConnectV311WillQos3Test;
+
+impl TestCase for ConnectV311WillQos3Test {
+    fn name(&self) -> &str {
+        "connect_v311_will_qos3"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        // flags = 0x02 (clean) | 0x04 (will) | 0x18 (Will QoS = 3)
+        let packet = raw_connect_full(
+            b"MQTT",
+            4,
+            0x1E,
+            60,
+            b"will-qos3",
+            Some(b"will/topic"),
+            Some(b"msg"),
+            None,
+            None,
+        );
+        assert_connect_rejected_or_closed(self.name(), ctx, start, &packet)
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
+}
+
+/// Negative: User Name Flag = 1 without a User Name field in the payload.
+/// [MQTT-3.1.2-18/19]
+pub struct ConnectV311UsernameFlagMismatchTest;
+
+impl TestCase for ConnectV311UsernameFlagMismatchTest {
+    fn name(&self) -> &str {
+        "connect_v311_username_flag_mismatch"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        // flags = 0x02 (clean) | 0x80 (user name flag), but no user name bytes
+        let packet = raw_connect_full(b"MQTT", 4, 0x82, 60, b"un-mismatch", None, None, None, None);
+        assert_connect_rejected_or_closed(self.name(), ctx, start, &packet)
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
+}
+
+/// Negative: Password Flag = 1 without a Password field, and Password Flag
+/// with User Name Flag = 0. [MQTT-3.1.2-20/21/22]
+pub struct ConnectV311PasswordFlagMismatchTest;
+
+impl TestCase for ConnectV311PasswordFlagMismatchTest {
+    fn name(&self) -> &str {
+        "connect_v311_password_flag_mismatch"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+
+        // Password Flag = 1 while User Name Flag = 0 (flags = 0x02 | 0x40),
+        // no password bytes either — violates [MQTT-3.1.2-22] outright.
+        let pkt1 = raw_connect_full(b"MQTT", 4, 0x42, 60, b"pw-no-user", None, None, None, None);
+        let r1 = assert_connect_rejected_or_closed(self.name(), ctx, start, &pkt1);
+        if !r1.verdict.is_passed() {
+            return r1;
+        }
+
+        // Password Flag = 1 with a user name but NO password field
+        // (flags = 0x02 | 0x80 | 0x40 = 0xC2) — violates [MQTT-3.1.2-21].
+        let pkt2 = raw_connect_full(b"MQTT", 4, 0xC2, 60, b"pw-missing", None, None, Some(b"user"), None);
+        let r2 = assert_connect_rejected_or_closed(self.name(), ctx, start, &pkt2);
+        if !r2.verdict.is_passed() {
+            return r2;
+        }
+
+        TestResult::passed(self.name(), "functional_v311", start.elapsed())
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// P3 optional / low-risk gap fill (G29, G30, 2026-08-23)
+// ---------------------------------------------------------------------------
+
+/// Boundary: a 65535-byte client id (the max u16 length-field value) is
+/// accepted by RMQTT (`max_clientid_len` defaults to 65535). Mirrors the v3
+/// `connect_v3_client_id_max_length` test for v3.1.1. [MQTT-3.1.3-5]
+pub struct ConnectV311ClientId65535Test;
+
+impl TestCase for ConnectV311ClientId65535Test {
+    fn name(&self) -> &str {
+        "connect_v311_client_id_65535"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+
+        let long_id = vec![b'a'; 65535]; // max u16 length field value
+        let packet = raw_connect_bytes(b"MQTT", 4, 0x02, 60, &long_id);
+        match raw_connect_exchange(&ctx.config.broker_addr, &packet) {
+            Ok(Some(0)) => TestResult::passed(self.name(), "functional_v311", start.elapsed()),
+            Ok(Some(code)) => TestResult::failed(
+                self.name(),
+                "functional_v311",
+                start.elapsed(),
+                format!("expected CONNACK 0x00 for 65535-byte client id, got 0x{code:02x}"),
+            ),
+            Ok(None) => TestResult::failed(
+                self.name(),
+                "functional_v311",
+                start.elapsed(),
+                "broker closed the connection for a 65535-byte client id".into(),
+            ),
+            Err(e) => TestResult::failed(self.name(), "functional_v311", start.elapsed(), e.to_string()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
+}
+
+/// Negative: the CONNECT payload fields must appear in the fixed order
+/// Client Identifier -> Will Topic -> Will Message -> User Name -> Password
+/// [MQTT-3.1.3-1]. A payload whose fields are scrambled (here: username
+/// declared with a length that runs past the end of the packet) must be
+/// rejected or the connection closed.
+pub struct ConnectV311PayloadOrderErrorTest;
+
+impl TestCase for ConnectV311PayloadOrderErrorTest {
+    fn name(&self) -> &str {
+        "protocol_error_v311_connect_payload_order"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+
+        // flags = clean (0x02) | user name (0x80) | password (0x40) = 0xC2.
+        // Payload is [client_id, username-with-overlong-length]: the broker
+        // consumes client_id, then tries to read the username of 8 bytes but
+        // only 2 remain -> InvalidLength -> the connection must be closed.
+        let mut body: Vec<u8> = Vec::new();
+        body.extend_from_slice(&[0x00, 0x04]);
+        body.extend_from_slice(b"MQTT");
+        body.push(4);
+        body.push(0xC2);
+        body.extend_from_slice(&[0x00, 0x3C]); // keep alive 60
+        body.extend_from_slice(&[0x00, 0x05]);
+        body.extend_from_slice(b"cid01"); // client id
+        body.extend_from_slice(&[0x00, 0x08]); // username: declares 8 bytes...
+        body.extend_from_slice(b"ab"); // ...but only 2 are present
+        let mut pkt = vec![0x10];
+        let mut len = body.len();
+        loop {
+            let mut b = (len % 128) as u8;
+            len /= 128;
+            if len > 0 {
+                b |= 0x80;
+            }
+            pkt.push(b);
+            if len == 0 {
+                break;
+            }
+        }
+        pkt.extend_from_slice(&body);
+
+        assert_connect_rejected_or_closed(self.name(), ctx, start, &pkt)
     }
 
     fn timeout(&self) -> Duration {

@@ -34,6 +34,7 @@ rmqtt/src/
 ├── v5.rs           — MQTT v5.0 protocol handler
 │
 ├── delayed.rs      — [feature: delayed] Delayed message publishing
+├── flapping.rs     — [feature: flapping] Read view of the connection gate (bans in force)
 ├── grpc.rs         — [feature: grpc] gRPC inter-node communication
 ├── message.rs      — [feature: msgstore] Message storage subsystem
 ├── metrics.rs      — [feature: metrics] Metrics collection
@@ -55,6 +56,7 @@ rmqtt/src/
 | `ws` | rmqtt-net/ws | WebSocket transport |
 | `quic` | rmqtt-net/quic | QUIC transport |
 | `delayed` | — | Delayed message publishing |
+| `flapping` | — | Connection-gate read view (bans in force, for plugins and the HTTP API) |
 | `retain` | — | Retained message storage |
 | `msgstore` | — | Message persistence |
 | `shared-subscription` | — | Shared subscriptions ($share/) |

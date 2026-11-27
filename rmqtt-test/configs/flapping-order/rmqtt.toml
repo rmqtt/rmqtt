@@ -1,0 +1,143 @@
+##--------------------------------------------------------------------
+## rmqttd config for the ClientConnect observer-order fixture
+## (rmqtt-flapping + rmqtt-counter, HTTP 6067)
+##
+## Purpose: pin that a *refused* CONNECT still passes every
+## `ClientConnect` observer, i.e. that the flapping gate is dispatched
+## after rmqtt-counter (and after the slot rmqtt-web-hook occupies) in
+## the `ClientConnect` chain.
+##
+## The chain is dispatched by highest priority first, and a handler that
+## returns `proceed = false` short-circuits everything below it
+## (rmqtt/src/hook.rs). Counter and web-hook register at `Priority::MAX`
+## and always return `(true, acc)`, so they see every CONNECT — but only
+## if the gate sits *below* them. The gate therefore registers at
+## `Priority::MAX / 2` (see rmqtt-plugins/rmqtt-flapping/src/lib.rs).
+## With the gate back at `Priority::MAX` the two share one priority, and
+## the tie is broken by a randomly generated handler id: whether counter
+## observes a refusal would then be a coin flip per process.
+##
+## Why this fixture is a copy of `configs/flapping/` rather than a shared
+## one: `Metrics` is a node-wide accumulator, so the exact assertion
+## "CONNECTs sent == client_connect delta" needs a broker no other case
+## talks to. `configs/flapping/` is shared by three cases — two of them
+## may run in parallel — and would drown the delta in their traffic.
+## Sub-suites are split by (config, addr), so a fixture of its own buys
+## a broker process of its own, and a fresh one also starts the counters
+## at zero.
+##
+## Anonymous access is ENABLED on purpose, exactly as in the flapping
+## fixture: with `allow_anonymous = true` and no username in the CONNECT,
+## `HookManager::client_authenticate` returns ok without running its
+## chain, so the gate is the only possible source of a refusal here and
+## `rmqtt-acl` stays disabled (its shipped final rule `["allow", "all"]`
+## also covers CONNECT — issue #501).
+##
+## There is intentionally no `plugins/Cargo.toml` in this directory: the
+## broker only reads `{plugins.dir}/{name}.toml` (rmqtt/src/plugin.rs),
+## and the test binary links every plugin already.
+##
+## Ports: MQTT 1903 / gRPC 5380 / HTTP 6067 — this fixture owns them
+## instead of sharing the harness-wide 1883 / 5363 / 6060. The harness
+## health-probes its `--addr` (a config file cannot change that), so
+## `TestCase::broker_addr()` in tests/functional/flapping_order_v5.rs
+## retargets the probe at 1903 while the `{suite}@flapping-order`
+## sub-suite runs. Moving this listener therefore means changing that
+## constant as well.
+##
+## Free ports at the time of writing: the flapping fixture holds MQTT
+## 1902 / gRPC 5379 / HTTP 6066, webhook-connack-refused 1901 / 5378,
+## and the HTTP API elsewhere is on 6060 (harness), 6061 (cluster stress
+## node 1) and 6070 (session-sled-stress).
+##
+## Usage (run from the rmqtt repository root so that `plugins.dir`
+## resolves correctly). Neither `--config` nor `--addr` is needed: the
+## case declares both, and the scheduler switches them at the sub-suite
+## boundary.
+##   target/release/mqtt_harness \
+##     --binary target/release/rmqttd \
+##     --workspace . \
+##     --suites functional_v5 --workers 1 \
+##     --test flapping_observer_order
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+node.id = 1
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## Log
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "."
+log.file = "rmqtt.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+# Self-contained: plugin configs live in this directory's plugins/ sub-dir.
+plugins.dir = "rmqtt-test/configs/flapping-order/plugins/"
+# Counter is the observer under test: it counts in
+# `scx.metrics.client_connect`, which the case reads back over HTTP.
+# Startup order does not matter — counter registers at `Priority::MAX`
+# and the gate at `Priority::MAX / 2`, so the dispatch order is settled
+# by the priority values and not by who registered first.
+plugins.default_startups = [
+    "rmqtt-flapping",
+    "rmqtt-counter",
+    "rmqtt-http-api",
+]
+plugins.disabled_default_startups = ["rmqtt-acl"]
+
+##--------------------------------------------------------------------
+## RPC (port avoids every gRPC port used elsewhere: 5363 harness,
+## 5364 cleanup, 5365 rl-boundary, 5366-5370 cluster, 5371 auth-denied,
+## 5372 auth-jwt-denied, 5373-5374 delayed cluster / cleanup-edge,
+## 5375 transport-tls, 5376-5377 acl-fallthrough, 5378 webhook-connack,
+## 5379 flapping)
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5380"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Listener (external TCP only; port avoids every MQTT port used
+## elsewhere: 1883 harness, 1884 cleanup, 1885-1890 cluster, 1891
+## rl-boundary, 1892 auth-denied, 1893 auth-jwt-denied, 1894 cleanup-edge,
+## 1895 retain-sled, 1896/1900 acl-fallthrough, 1897-1899 transport-tls,
+## 1901 webhook-connack, 1902 flapping)
+##--------------------------------------------------------------------
+listener.tcp.external.addr = "127.0.0.1:1903"
+listener.tcp.external.workers = 8
+listener.tcp.external.max_connections = 1024000
+listener.tcp.external.max_handshaking_limit = 500
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1MB"
+listener.tcp.external.backlog = 1024
+# Anonymous access allowed: the flapping gate must be the only thing that
+# can refuse a CONNECT here (see the header).
+listener.tcp.external.allow_anonymous = true
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled (would clash with other suites)
+##--------------------------------------------------------------------
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false

@@ -38,7 +38,13 @@ Artifact located at `target/release/mqtt_harness` (`mqtt_harness.exe` on Windows
 ./target/release/mqtt_harness --workspace .
 ```
 
-The program will auto-locate `target/release/rmqttd` and start the broker.
+Without `--binary` the harness auto-locates the broker binary under the
+workspace root in the order `target/release/rmqttd` → `target/debug/rmqttd`
+and starts it; pass `--binary <path>` to pin a specific build. Note the
+release-first order — whenever a release `rmqttd` exists it wins, even when you
+launched the debug harness — so a stale release build can silently be the
+binary under test.
+
 By default it uses the **self-contained config**
 `rmqtt-test/configs/default/rmqtt.toml` (independent from the repository-root
 `rmqtt.toml` / `rmqtt-plugins/*.toml`; all TCP/TLS/WS/WSS/QUIC listeners are
@@ -87,7 +93,45 @@ kept enabled for the upcoming TLS/WS/QUIC test suites).
 > `--suites` supports prefix matching: `functional_v5` also selects every
 > config-split sub-suite (e.g. `functional_v5@retain-disabled`). The
 > `functional_v5_cluster` two-node suite only runs when explicitly requested
-> and is never part of the default full run.
+> and is never part of the default full run. The same holds for the in-process
+> timing suite `issue547`, which needs no broker at all:
+>
+> ```bash
+> ./target/release/mqtt_harness --workspace . --no-broker --suites issue547 --workers 1
+> ```
+
+### Running Specific Test Cases
+
+```bash
+# Single case (-t/--test matches a substring of the case name, repeatable)
+./target/release/mqtt_harness --workspace . --suites functional_v5 -t will_delay_v5
+
+# Several cases
+./target/release/mqtt_harness --workspace . --suites functional_v5 \
+  -t will_published_on_disconnect_rc_0x04_v5 \
+  -t will_not_published_on_disconnect_rc_0x00_v5
+
+# No --suites: search every suite by name and run only the matches
+./target/release/mqtt_harness --workspace . -t mqtt_keepalive
+
+# Timing-sensitive cases: pin --workers 1 so nothing else shares the broker
+# (issue #513 message-lifecycle reproductions)
+./target/release/mqtt_harness --workspace . --suites functional_v5 --workers 1 \
+  -t retained_message_expiry_not_decremented_v5 \
+  -t message_expiry_deletes_qos2_inflight_v5 \
+  -t oversized_queued_message_stalls_queue_v5
+```
+
+> `-t/--test` is applied after the suite/config split, so a selected case still
+> runs under its declared broker config and no extra config switches are
+> introduced by the filtering; suites left without a match are dropped.
+>
+> `--workers N` (default 4) sets how many cases run in parallel against the
+> single harness-managed broker. Cases that depend on fixed waits,
+> connection-close detection, or strict delivery order should be pinned to
+> `--workers 1` so a concurrently scheduled case cannot perturb their timing.
+> The three cases above are the issue #513 reproductions listed in the
+> `functional_v5` table below.
 
 ## ⚙️ Broker Configs (self-contained `configs/`)
 
@@ -103,7 +147,49 @@ configs/
   retain-disabled/          # retainer plugin NOT loaded (Retain Available = 0)
   pubrel-collision/         # message-storage loaded (PUBREL collision repro)
   pubrel-collision-cluster/ # two-node cluster (manual start, 1884/1885 MQTT)
+  session-sled/             # single node, sled session storage (issue #475 repro, harness-switched)
+  session-sled-stress/      # same, isolated sled path (stress test only)
+  cluster-broadcast-sled/   # two-node cluster (1886/1887 MQTT, self-managed by tests)
+  cluster-broadcast-sled-stress/  # same, isolated sled path (stress test only)
+  cluster-raft-sled/        # three-node raft cluster (1888/1889/1890 MQTT, 6008-6010 raft)
+  cluster-raft-sled-stress/ # same, isolated sled path (stress test only)
+  auth-http-acl-fallthrough/ # issue #501: auth-http 404-ignore × rmqtt-acl final rule
+                             # (self-managed 1896 allow-all / 1900 deny-all, ephemeral mock)
+  webhook-connack-refused/   # client_connack web-hook on a REFUSED CONNECT
+                             # (self-managed 1901, ephemeral mock receiver)
+  flapping/                  # connection flapping protection (1902 MQTT / 5379 gRPC /
+                             # 6066 http-api; harness-managed but owns its ports via
+                             # broker_addr(), allow_anonymous = true, by_clientid only)
+  flapping-order/            # ClientConnect observer order: flapping + counter, so a
+                             # refused CONNECT can be counted (1903 MQTT / 5380 gRPC /
+                             # 6067 http-api; own broker process, read by delta)
+  plugin-sys-topic/          # $SYS stats/metrics + per-client event topics (1930 / 5400)
+  plugin-msg-store/          # message-storage replay / expiry, no retainer (1931 / 5401)
+  plugin-limits/             # listener quotas + $limit/$exclusive forms (1932 / 5402)
+  plugin-queue-limits/       # max_mqueue_len overflow policy per QoS (1933 / 5403)
+  plugin-shared-sticky/      # shared-subscription strategy = sticky (1934 / 5404)
+  plugin-shared-hash-clientid/  # strategy = hash_clientid (1935 / 5405)
+  plugin-shared-hash-topic/  # strategy = hash_topic (1936 / 5406)
+  plugin-auto-sub/           # auto-subscription ${clientid} / ${username} (1937 / 5407)
+  plugin-topic-rewrite/      # topic-rewrite publish + subscribe rules (1938 / 5408)
+  plugin-p2p/                # p2p-messaging prefix and suffix modes (1939 / 5409)
+  plugin-bridge-origin/      # bridge-origin marker detection, file log (1940 / 5410)
 ```
+
+The `plugin-*` fixtures are all harness-managed: their cases declare
+`broker_config()` **and** `broker_addr()`, and `tests::fixture_config()` copies
+each fixture into `target/test-fixtures/<name>/` with `@@PLUGINS_DIR@@` /
+`@@LOG_DIR@@` substituted, so the copy is independent of the process working
+directory (and of the repository files themselves).
+
+The harness drains the broker's `stdout`/`stderr` pipes into `tracing::debug!`
+(`broker/lifecycle.rs`), so `--verbose` / `test-trace.log` carry the broker's
+console output. A pipe only buffers 64 KiB and a console-logging broker exceeds
+that within one sub-suite, which blocks the broker's logging call — and with it
+the session task that owes the client a SUBACK; that was a real 15 s
+`subscribe timeout` before the drain was added. A case that has to *assert* on
+broker output should still make its fixture log to a file (`log.to = "file"` +
+`log.file`), because the pipe is not retained.
 
 **Per-test config switching**: a test case can declare its required config via
 `TestCase::broker_config()` (e.g. `WillRetainRejectedWhenRetainUnavailableV5Test`
@@ -114,12 +200,17 @@ into a dedicated `{suite}@{config}` sub-suite (e.g.
 (restart) only at **suite boundaries**, and the default-config group keeps
 its original name with zero extra restarts.
 
-Port constraint: configs participating in auto-switching must listen on the
-harness `--addr` (default `127.0.0.1:1883`), otherwise the health check fails.
+Port constraint: a config participating in auto-switching must listen on the
+harness `--addr` (default `127.0.0.1:1883`), because that is the address the
+health check probes — **unless** its cases also declare
+`TestCase::broker_addr()`, which retargets the probe at that address for as
+long as the sub-suite runs. `configs/flapping` (`127.0.0.1:1902`),
+`configs/flapping-order` (`127.0.0.1:1903`) and the eleven `configs/plugin-*`
+fixtures (MQTT `1930`–`1940`, gRPC `5400`–`5410`) do exactly that.
 
 ## 📋 Test Suites
 
-### `functional_v3` (47 cases) — MQTT 3.1
+### `functional_v3` (51 cases) — MQTT 3.1
 
 Spec-conformance suite for MQTT v3.1 (IBM MQIsdp), covering positive, negative
 and boundary scenarios:
@@ -135,49 +226,163 @@ and boundary scenarios:
 | Session | `session_v3_persistent` / `clean` / `offline_queue` |
 | Wildcard | `wildcard_v3_plus` / `hash` / `overlap` / `dollar_topics` / `case_sensitive` / `leading_slash` |
 | Boundary | `boundary_v3_empty_payload` / `large_payload` / `long_topic` / `special_chars_topic` / `max_keepalive` / `rapid_subscribe` |
-| Protocol errors | `protocol_error_v3_subscribe_qos3` / `publish_packet_id_zero` / `bad_remaining_length` / `empty_topic_filter` / `reserved_packet_type` / `subscribe_qos0_fixed_header` |
+| Protocol errors | `protocol_error_v3_subscribe_qos3` / `publish_packet_id_zero` / `publish_empty_topic` / `bad_remaining_length` / `empty_topic_filter` (subscribe/unsubscribe) / `reserved_packet_type` / `subscribe_qos0_fixed_header` |
 
 > The v3.1 client hand-builds the MQIsdp CONNECT bytes (`build_connect_bytes`)
 > because the codec hard-codes protocol level 4 (correct for 3.1.1/5.0).
 
-### `functional_v311` (64 cases) — MQTT 3.1.1
+### `functional_v311` (132 cases) — MQTT 3.1.1
 
 | Category | Cases |
 |----------|-------|
-| Connect | `connect_v311` / `empty_client_id` / `multiple_connections` / `session_present_fresh` / `wrong_protocol_name` / `unsupported_level` / `reserved_flag` / `second_connect` [MQTT-3.1.0-2] / `long_client_id` |
-| Pub/Sub | `pubsub_v311_qos0/1/2` / `retain_v311_message` / `unsubscribe_v311` |
-| QoS 2 conformance | `qos2_replayed_publish_dedup_v311` [MQTT-4.3.3-10] / `qos2_pubrel_resend_on_resume_v311` [MQTT-4.4.0-1] / `qos2_duplicate_detection` |
-| Retained | `retain_v311_store_and_deliver` / `empty_payload_deletes` [MQTT-3.3.1-9] / `overwrite` / `live_message_not_retained` / `will` |
-| Last Will | `last_will_v311` / `clean` / `unclean` / `qos2` / `keepalive_timeout` |
-| Keep alive | `keepalive_v311_ping_keeps_alive` / `timeout` / `zero` / `max_value` |
-| Session | `clean_session_false` / `offline_queue_v311` / `present_on_resume` [MQTT-3.2.2.1] / `clean_discard` [MQTT-3.1.2-6] |
-| Wildcard | `wildcard_plus` / `hash` / `case_sensitive` / `leading_slash` / `hash_not_last` |
-| Auth / dollar / shared | `auth_empty_client_id_fail` / `auth_connect_disconnect_sequence` / `dollar_topics` / `shared_sub_v311` |
-| Boundary | `max_client_id` / `long_topic` / `empty_payload` / `large_payload` / `special_chars_topic` / `rapid_subscribe` |
+| Connect | `connect_v311` / `empty_client_id` / `multiple_connections` / `session_present_fresh` / `wrong_protocol_name` / `unsupported_level` / `reserved_flag` / `second_connect` [MQTT-3.1.0-2] / `long_client_id` / `client_id_65535` / `assigned_client_id` / `invalid_utf8_client_id` / `invalid_utf8_username` / `invalid_utf8_will_topic` / `username_flag_mismatch` / `password_flag_mismatch` / `will_flag_zero_but_qos_set` / `will_qos3` / `will_not_fire_on_rejected_connect` |
+| Pub/Sub | `pubsub_v311_qos0/1/2` / `publish_wildcard_reject` / `qos_downgrade_v311` / `ordering_qos2_v311` |
+| QoS 2 / resume | `qos2_replayed_publish_dedup_v311` [MQTT-4.3.3-10] / `qos2_pubrel_resend_on_resume_v311` [MQTT-4.4.0-1] / `qos2_duplicate_detection` / `qos1_publish_resend_on_resume_v311` / `qos2_broker_to_client_no_pubrec_v311` |
+| Retained | `retain_v311_store_and_deliver` / `empty_payload_deletes` [MQTT-3.3.1-9] / `overwrite` / `live_message_not_retained` / `live_publish_keeps_retained` / `will` / `restart_recovery` |
+| Last Will | `last_will_v311` / `qos0` / `qos1` / `qos2` / `clean` / `unclean` / `invalid_utf8_payload` / `keepalive_timeout` |
+| Keep alive | `keepalive_v311_ping_keeps_alive` / `timeout` / `zero` / `max_value` / `pingresp_explicit` / `window_boundary` |
+| Session | `clean_session_false` / `offline_queue_v311` / `present_on_resume` [MQTT-3.2.2.1] / `clean_discard` [MQTT-3.1.2-6] / `takeover` / `tcp_fin_rst` |
+| Wildcard | `wildcard_plus` / `hash` / `case_sensitive` / `leading_slash` / `hash_not_last` / `overlap` / `empty_levels` |
+| Auth / dollar / shared | `auth_empty_client_id_fail` / `auth_connect_disconnect_sequence` / `dollar_topics` / `dollar_topics_non_leading_v311` [MQTT-4.7.2-1] / `shared_sub_v311` |
+| Boundary | `max_client_id` / `long_topic` / `empty_payload` / `large_payload` / `special_chars_topic` / `rapid_subscribe` / `remaining_length_max` |
 | Multi-topic | `multi_topic_subscribe_v311` / `overlapping_subscriptions` / `message_ordering` |
-| Protocol errors | `invalid_protocol_version` / `empty_topic_filter` / `protocol_error_v311_*` (subscribe qos3, fixed-header QoS, publish qos3/pid0, bad remaining length, reserved type) |
+| Protocol errors | `invalid_protocol_version` / `protocol_error_v311_*` (subscribe/unsubscribe: qos3, qos0 fixed header, empty payload/filter, packet id 0; publish: qos3, pid0, empty topic, packet id on QoS0; bad remaining length, declared length mismatch, truncated packet, reserved packet type, packet type 15, pubrel/pubrec/pubcomp wrong flags, unsolicited pubrel, connect payload order, invalid UTF-8 topic) / `remaining_length_transition_v311` |
+| CONNACK return codes (self-managed brokers) | `connack_return_codes_auth_http_v311` (auth-http + in-test mock, port 1892) / `connack_not_authorized_v311` (auth-jwt, port 1893) — these cases spawn their own brokers and don't use the harness broker |
+| Issue #501 auth × ACL fallthrough (self-managed brokers) | `auth_http_ignore_allow_all_acl_v311` (auth service replies 404 → auth 'ignore'; acl `["allow", "all"]` promotes it → CONNACK 0x00 fail-open reproduction, port 1896) / `auth_http_ignore_deny_all_acl_v311` (acl `["deny", "all"]` backstop → CONNACK 0x05 fail-closed, port 1900) |
+| Web-hook on a refused CONNECT (self-managed broker) | `webhook_connack_refused_v311` — an anonymous CONNECT is refused with 0x05 **and** the `client_connack` event carrying that reason must reach an in-test mock web-hook receiver (port 1901, ephemeral receiver); the two halves are asserted separately, so the case was red before the hook was raised on refusals |
+| Flapping protection (harness broker) | `flapping_ban_v311` — CONNECTs up to the 4th are accepted, the 4th is refused, and MQTT 3.1.1 has no ban code so the fallback is pinned to **0x05** (deliberately not `0x03`, which invites an immediate reconnect); after `ban_time` lapses a single CONNECT goes through |
+| `$SYS` topic (`plugin-sys-topic`) | `plugin_sys_topic_stats_and_metrics` — `$SYS/brokers/1/stats` carries `sessions.count` / `connections.count` and `$SYS/brokers/1/metrics` a `client.connect` counter, proving the periodic publisher ran at the `publish_interval` floor (1s) with `publish_qos = 1`; `plugin_sys_topic_client_events` — after subscribing to `$SYS/brokers/1/session/+/created` and `$SYS/brokers/1/clients/+/connected` a *later* CONNECT produces both notices with the new `clientid` inside the JSON body (neither topic is retained, so subscribing first is itself part of the contract) |
+| Offline-queue cap (`plugin-queue-limits`) | `plugin_queue_qos1_overflow_drops_oldest` — `max_mqueue_len = 3`, 6 offline QoS 1 publishes, the resumed session owes exactly `m3,m4,m5` (`Policy::Early`); `plugin_queue_qos0_overflow_drops_newest` — the same run at QoS 0 owes `m0,m1,m2`, i.e. the incoming message is dropped (`Policy::Current`); both policies come from `Session::deliver_queue_channel` |
+| Shared-subscription strategies | `plugin_shared_round_robin_exactly_once` (default config) — 3 members × 12 publishes: every payload delivered exactly once, no duplicate and no loss; `plugin_shared_sticky_keeps_publisher_affinity` (`plugin-shared-sticky`) — a batch goes wholly to one member and stays there after a third member joins; `plugin_shared_hash_clientid_pins_publisher` (`plugin-shared-hash-clientid`) — two publishers each pinned to one member; `plugin_shared_hash_topic_pins_topic` (`plugin-shared-hash-topic`) — `sh/ht/one` and `sh/ht/two` each pinned to a single member |
+| Auto-subscription (`plugin-auto-sub`) | `plugin_auto_sub_clientid_placeholder` — the session is subscribed to `as/${clientid}/#` at CONNECT without any SUBSCRIBE, and a message for a *different* clientid must not arrive; `plugin_auto_sub_username_placeholder` — the same for `asu/${username}/#`, keyed by the CONNECT username |
+| Topic rewrite (`plugin-topic-rewrite`) | `plugin_topic_rewrite_publish_action` — a PUBLISH to `rw/pub/a/b` reaches subscribers as `rw/out/a/b` and no longer routes on the original topic; `plugin_topic_rewrite_subscribe_action` — `rw/sub/old/y` and its `$share/g/rw/sub/old/y` form are both rewritten to `rw/sub/new/y` (the hook sees the filter with `$share/<group>/` already stripped) |
+| P2P messaging (`plugin-p2p`) | `plugin_p2p_prefix_routes_to_client` — `p2p/{clientid}/sensor/temp` is delivered to that client as `sensor/temp` while a bystander subscribed to `sensor/temp` is unaffected; `plugin_p2p_suffix_routes_to_client` — the `sensor/temp/p2p/{clientid}` suffix form |
+| Bridge origin (`plugin-bridge-origin`) | `plugin_bridge_origin_detects_markers` — the ingress/egress client-id markers are classified (the `BridgeOrigin` lands in `session.extra_attrs`, observable only through the debug log, hence `log.to = "file"` + `log.level = "debug"`); `plugin_bridge_origin_ignores_plain_clientid` — a marker-less client id must **not** be classified, asserted on the plugin's own line so the packet log mentioning the id cannot satisfy it |
 
-### `functional_v5` (63 cases) — MQTT 5.0
+### `functional_v5` (120 cases) — MQTT 5.0
 
 | Category | Cases |
 |----------|-------|
-| Connect / CONNACK | `connect_v5` / `reason_codes` / `session_present_fresh` / `wrong_protocol_name` / `unsupported_level` / `reserved_flag` / `second_connect` / `client_id_too_long` / `auth_method_rejected` (0x8C) / `connack_capabilities_v5` / `connack_receive_max_echo_v5` / `connack_assigned_client_id_v5` / `empty_clientid_cleanstart0_rejected` |
-| Pub/Sub | `pubsub_v5_qos0/1/2` |
-| Session | `session_expiry_v5` / `takeover_v5` / `clean_start_v5` / `disconnect_expiry_zero` [MQTT-3.14.2-2] / `expiry_cleanup` |
-| V5 features | `flow_control_v5` / `no_local_v5` / `will_delay_v5` / `shared_sub_v5` / `topic_alias_v5` (server/client/unknown-alias → 0x94) / `retain_handling_*_v5` / `retain_as_published_v5` / `server_keepalive_v5` / `max_packet_size_v5` (+ enforcement) / `subscribe_identifiers_v5` / `payload_format_v5` / `publication_expiry_v5` / `request_response_v5` / `user_properties_v5` / `wildcard_available_v5` |
-| Retained | `retain_v5_store_and_deliver` / `empty_payload_deletes` / `overwrite` / `live_message_not_retained` / `will` |
+| Connect / CONNACK | `connect_v5` / `connect_v5_reason_codes` / `connect_v5_session_present_fresh` / `connect_v5_wrong_protocol_name` / `connect_v5_unsupported_level` / `connect_v5_reserved_flag` / `connect_v5_second_connect` / `connect_v5_client_id_too_long` / `connect_v5_auth_method_rejected` (0x8C) / `connack_capabilities_v5` / `connack_receive_max_echo_v5` / `connack_assigned_client_id_v5` / `assigned_clientid_v5` / `v5_empty_clientid_cleanstart0_rejected` |
+| Connect negative (🐞 expected-fail) | `connect_v5_will_flag_zero_but_qos_set` / `connect_v5_will_flag_zero_but_retain_set` [MQTT-3.1.2-11/12] — registered broker defects |
+| Pub/Sub | `pubsub_v5_qos0` / `pubsub_v5_qos1` / `pubsub_v5_qos2` / `pubsub_v5_qos1_ordering` / `qos_downgrade_v5_matrix` / `publish_properties_passthrough_v5` |
+| Session | `session_expiry_v5` / `session_takeover_v5` / `session_clean_start_v5` / `session_v5_disconnect_expiry_zero` [MQTT-3.14.2-2] / `session_v5_expiry_cleanup` / `session_v5_expiry_update_on_reconnect` |
+| Server DISCONNECT on teardown | `takeover_sends_disconnect_0x8e_v5` [MQTT-3.1.4-3] — FIXED, now PASSing (see the note below): the v5 DISCONNECT is sent while the sink's write half is still open, so the taken-over Client gets Reason Code 0x8E and only then the close |
+| Flow control | `flow_control_v5` / `flow_control_v5_inflight_cap_strict` |
+| Flow-control negative (🐞 expected-fail) | `flow_control_v5_receive_max_violation` [MQTT-4.9.0-1/2] — registered broker defect (no DISCONNECT 0x93) |
+| Topic alias | `client_topic_alias_v5` / `server_topic_alias_v5` / `topic_alias_v5_unknown_alias` (→ 0x94) / `topic_alias_v5_zero` / `topic_alias_v5_over_max` (→ 0x94) — the two negative cases publish at QoS 1, so the PUBACK is what proves acceptance; all five now PASS (see the note below) |
+| Shared subscription | `shared_sub_v5` / `shared_sub_v5_malformed_filter` |
+| Retain handling | `retain_handling_new_v5` / `retain_handling_no_at_subscribe_v5` / `retain_as_published_v5` |
+| Message expiry | `publication_expiry_v5` / `message_expiry_v5_forwarded` / `message_expiry_v5_queued_drop` |
+| Will | `last_will_v5_fires` / `will_delay_v5` / `will_properties_v5_delivery` / `will_published_on_abrupt_close_v5` / `will_published_on_disconnect_rc_0x04_v5` / `will_published_on_disconnect_rc_not_0x00_v5` / `will_not_published_on_disconnect_rc_0x00_v5` |
+| Packet size / Server Keep Alive | `max_packet_size_v5` / `max_packet_size_enforcement_v5` / `server_keepalive_v5` |
+| Request/Response & properties | `request_response_v5` / `request_problem_info_v5` / `user_properties_v5` / `payload_format_v5` |
+| Subscription options | `subscribe_identifiers_v5` / `subscribe_identifiers_v5_update` / `subscribe_multi_filter_mixed_v5` / `no_local_v5` / `wildcard_available_v5` |
+| Retained | `retain_v5_store_and_deliver` / `retain_v5_empty_payload_deletes` / `retain_v5_overwrite` / `retain_v5_live_message_not_retained` / `retain_v5_will` |
 | QoS 2 | `qos2_replayed_publish_dedup` [MQTT-4.3.3-10] / `qos2_pubrel_resend_on_resume` [MQTT-4.4.0-1] / `qos2_pubrel_resume_collision` |
-| Wildcard | `wildcard_v5_case_sensitive` / `leading_slash` |
-| Protocol errors | `protocol_error_v5_*` (subscribe qos3, fixed-header QoS, publish qos3/pid0/empty-topic, bad remaining length, reserved type) |
+| Wildcard | `wildcard_v5_case_sensitive` / `wildcard_v5_leading_slash` |
+| Reason codes (MAY-level) | `reason_code_v5_puback_no_matching_subscribers` / `reason_code_v5_unsuback_no_subscription` — assert a legal reason code (0x00 or 0x10 / 0x11) |
+| Response/Problem Information (info) | `connack_response_info_v5` / `publish_v5_response_topic_wildcard` — record-type observations, never failures |
+| Protocol errors | `protocol_error_v5_bad_remaining_length` / `protocol_error_v5_disconnect_bad_flags` / `protocol_error_v5_invalid_utf8_topic` / `protocol_error_v5_publish_dup_on_qos0` / `protocol_error_v5_publish_empty_topic` / `protocol_error_v5_publish_packet_id_zero` / `protocol_error_v5_publish_qos3` / `protocol_error_v5_reserved_packet_type` / `protocol_error_v5_retain_handling_3` / `protocol_error_v5_sub_id_zero` / `protocol_error_v5_sub_options_reserved_bits` / `protocol_error_v5_subscribe_empty_payload` / `protocol_error_v5_subscribe_packet_id_zero` / `protocol_error_v5_subscribe_qos0_fixed_header` / `protocol_error_v5_subscribe_qos3` / `protocol_error_v5_unsolicited_auth` / `protocol_error_v5_unsubscribe_empty_payload` / `protocol_error_v5_unsubscribe_packet_id_zero` / `protocol_error_v5_unsubscribe_qos0_fixed_header` / `protocol_error_v5_unsubscribe_with_sub_id` / `protocol_error_v5_user_property_bad_utf8` |
 | Disconnect | `disconnect_reason_v5` |
-| Will Retain vs Retain Available | `will_retain_rejected_when_retain_unavailable_v5` (executed in the `functional_v5@retain-disabled` sub-suite) |
+| Keep alive / TCP | `ping_v5` / `mqtt_keepalive_timeout_reclaims_tcp` / `tcp_keepalive_socket_option` (Linux-gated, skipped elsewhere) |
+| Message lifecycle (issue #513) | `retained_message_expiry_not_decremented_v5` [MQTT-3.3.2-6] — FIXED, now PASSing (the outgoing Message Expiry Interval is decremented by the time spent in the retain store); `message_expiry_deletes_qos2_inflight_v5` [MQTT-4.3.3-7] / [MQTT-4.4.0-1] — FIXED, now PASSing (an `UnComplete` exchange is no longer deleted by Message Expiry); `oversized_queued_message_stalls_queue_v5` + `retained_oversized_message_keeps_session_v5` [MQTT-3.1.2-24/-25] — FIXED, now PASSing; see the note below |
+| Will Retain vs Retain Available | `v5_will_retain_rejected_when_retain_unavailable` (executed in the `functional_v5@retain-disabled` sub-suite) |
+| Flapping protection (the `flapping` config) | `flapping_ban_v5` — the first 3 CONNECTs are all answered 0x00; from the 4th on the connection is refused with **0x8A** (Banned) and `$SYS/brokers/{node}/flapping/banned` carries a notice with `"dimension":"clientid"` and `"count":4`; once `ban_time` lapses a single CONNECT goes through (which proves the offending window was discarded, i.e. no "release then instant re-ban") |
+| Flapping protection (the `flapping` config) | `flapping_api_unban_v5` — `GET /api/v1/flapping/banned` lists the ban and reports `"available":true` (`GET /api/v1/features` carries the same state as `"flapping":true`) → `DELETE .../flapping/banned?dimension=clientid&key=…` answers `"unbanned":true` → the client connects at once → the `$SYS` `unbanned` notice carries `"reason":"manual"` → a second DELETE answers 404 |
+| Flapping observers (the `flapping-order` config) | `flapping_observer_order_v5` — 4 CONNECTs (`max_count`) are sent and the 4th is refused with 0x8A; `GET /api/v1/metrics/1` must show `client_connect` moving by exactly 4, refused one included. A refusal returns `proceed = false` and truncates the `ClientConnect` chain, so the gate has to sit below the `Priority::MAX` observers (`rmqtt-counter`, `rmqtt-web-hook`) — the case fails if it runs first and the counter never sees the refused CONNECT |
+| Message storage (the `plugin-msg-store` config) | `plugin_msg_store_replays_to_later_subscriber` — a message published while **nobody** was subscribed is replayed when a client subscribes afterwards (`storage.type = "ram"`, no retainer in the fixture), and the replayed copy carries `message_expiry_interval <= 60`; `plugin_msg_store_drops_expired_message` — a message with `Message Expiry Interval = 1s` is gone after 2.5s, followed by a positive-control publish that proves the subscription was live all along |
+| Listener quotas and `$limit`/`$exclusive` (the `plugin-limits` config) | `plugin_limit_max_subscriptions` — the 3rd filter of one session is refused in the SUBACK and never matches, while a granted filter still delivers; `plugin_limit_max_topic_levels` — a 4-level filter is refused, a 3-level one granted; `plugin_limit_max_qos_allowed` — a QoS 2 request is granted as **QoS 1** (SUBACK 0x01) and delivered at QoS 1; `plugin_limit_subscription_forms` — `$limit/1/lk/x` and `$exclusive/lk/y` each admit exactly one subscriber (the second is refused) and both prefixes are stripped, so the plain topic is what gets published. Refusals are asserted as "not granted" plus "no routing effect", because `Session::subscribes_v5` currently collapses every per-filter error to `UnspecifiedError` (0x80) rather than `QuotaExceeded` (0x97) |
 
-> `functional_v5` totals 63 cases: the default-config group runs 61 of them;
-> `will_retain_rejected_when_retain_unavailable_v5` and
-> `qos2_pubrel_resume_collision` require different broker configs and are
-> automatically split into the `functional_v5@retain-disabled` and
-> `functional_v5@pubrel-collision` sub-suites at build time (see the
-> "Broker Configs" section above).
+> **Expected-fail cases (🐞)**: they execute fully but assert behaviors the
+> broker does not implement yet (registered conformance gaps). A failure is
+> recorded as `EXPECTED-FAIL` and does not count against the suite; when the
+> broker becomes compliant the case surfaces as `UNEXPECTED-PASS` and should
+> be promoted to a normal assertion. See
+> `designs/mqtt-5.0-standalone-test-gap-analysis.md`.
+
+> `functional_v5` totals 120 cases: the default-config group runs 107 of them and
+> the other 13 need a different broker config, so they are split into eight
+> sub-suites at build time (see the "Broker Configs" section above):
+> `functional_v5@retain-disabled` (1), `functional_v5@pubrel-collision` (1),
+> `functional_v5@issue532-ramp` (1), `functional_v5@issue532-ramp-tls` (1),
+> `functional_v5@flapping` (2), `functional_v5@flapping-order` (1),
+> `functional_v5@plugin-msg-store` (2) and `functional_v5@plugin-limits` (4).
+> A full `--suites functional_v5 --workers 1` run reports
+> `Total: 120 | Passed: 114 | Failed: 0 | Skipped: 1 | ExpectedFail: 3 | Info: 2`
+> — no bare failures left:
+> `topic_alias_v5_over_max`, the last one, flipped to PASS once the Topic Alias
+> Maximum the Server advertises started being enforced (see below).
+
+> **Four issue #513-related cases are deliberately NOT marked expected-fail
+> (🐞).** Each asserts spec-required behaviour: a retained message's `Message
+> Expiry Interval` must be decremented by the time spent in the retain store
+> ([MQTT-3.3.2-6]); a PUBREL owed after PUBREC must be re-sent with its original
+> Packet Identifier on the resumed session ([MQTT-4.4.0-1]); a packet above the
+> client's Maximum Packet Size must be discarded and the server must then behave
+> as if it had completed sending that Application Message, on the queued path
+> and on the retained path alike ([MQTT-3.1.2-24] / [MQTT-3.1.2-25]). They
+> therefore surface as ordinary failures until the defect is fixed, then flip to
+> PASS with no test change — unlike the 🐞 cases above, which stay silent while
+> non-conformant. All four now PASS: `message_expiry_deletes_qos2_inflight_v5`,
+> because `Session::reforward` no longer applies Message Expiry to an
+> `UnComplete` exchange — PUBREC proves the PUBLISH was sent, and [MQTT-4.3.3-7]
+> forbids applying expiry from that point on; the two oversized-message cases,
+> because `EncodeError::OverMaxPacketSize` is now downgraded to a completed
+> delivery in `Session::deliver` (`rmqtt/src/session.rs`) instead of escaping the
+> session event loop; and `retained_message_expiry_not_decremented_v5`, because
+> `_send_retain_messages` no longer stamps `publish.create_time` with the
+> delivery time, leaving `message_expiry_check` the original receipt timestamp
+> to subtract the message's wait from. Run them serially (see "Running Specific
+> Test Cases").
+
+> **`takeover_sends_disconnect_0x8e_v5` is likewise NOT marked expected-fail
+> (🐞) — and it now PASSes.** It reproduced a fourth, independent defect found
+> while investigating #513 — connection *teardown*, not message lifetime.
+> `Session::run` used to call `sink.close()` (which shuts the write half down)
+> **before** building and sending the v5 DISCONNECT, and the resulting error was
+> discarded by `let _ =`. Every server-initiated Reason Code — 0x8D Keep Alive
+> timeout, 0x8E Session taken over, 0x93 Receive Maximum exceeded, 0x95 Packet
+> too large — was therefore dead code, and a Client could not tell "the Server
+> dropped me, and here is why" from "the network died". [MQTT-3.1.4-3] makes the
+> 0x8E DISCONNECT a MUST for a session takeover. The fix moves `sink.close()`
+> back after the DISCONNECT, keeps it off the paths where the Client already
+> ended the exchange (a Client-sent DISCONNECT or a transport close is not
+> echoed back), logs a failed send instead of dropping it, and maps a
+> connection-time takeover (`Reason::ConnectKicked(false)`) to 0x8E Session
+> taken over instead of the 0x87 Not Authorized it used to return. The case
+> asserts two layers separately, so a partial fix is still reported precisely:
+> against a stub broker that sends 0x8E before closing it PASSes, and against
+> one that sends 0x87 it fails on the reason code alone — which is exactly how
+> the wrong code was caught while only the ordering had been fixed.
+
+> **`topic_alias_v5_over_max` was a bare failure too, not (🐞) — and it now
+> PASSes.** It asserts that a PUBLISH whose Topic Alias exceeds the maximum the
+> Server itself advertised in the CONNACK is not accepted, and against the broker
+> of the time it *was* accepted: `ClientTopicAliases::set_and_get`
+> (`rmqtt/src/types.rs`) capped how *many* aliases a connection may register but
+> never checked an individual alias against that maximum, so `Topic Alias
+> Maximum + 1` was stored, the PUBLISH was delivered like any other, and the case
+> read back the PUBACK that proved it. It was the check that was missing, not the
+> code: [MQTT-3.3.2-9] forbids a Client to send such an alias, which makes the
+> advertised maximum the Server's own statement of which aliases it honours, and
+> 0x94 Topic Alias invalid is the Reason Code defined for an invalid Topic Alias
+> (MQTT 5.0 section 4.13.1 covers saying so before closing). `set_and_get` now
+> rejects any alias above the maximum on entry, reusing the
+> `MqttError::TopicAliasInvalid` that the alias-only branch already carried, so
+> the Client receives a DISCONNECT 0x94 and the connection ends. 0x94 is a
+> DISCONNECT code only — PUBACK has no such value — which is why the connection
+> ends rather than the PUBLISH being nacked. The older
+> `len >= max_topic_aliases` branch is deliberately left untouched: with every
+> stored alias now bounded by the maximum, `max` distinct keys taken from
+> `1..=max` can only be the whole range, so it has become unreachable. This case
+> and `topic_alias_v5_zero` used to publish at QoS 0, where the protocol expects
+> no answer at all — and as they treated a read timeout as "the connection was
+> closed", they passed whatever the broker did: `over_max` measured 5.0 s, which
+> is the whole read timeout. Both now publish at QoS 1, so a PUBACK is the single
+> answer that proves acceptance, and a timeout with the connection still open
+> fails. `topic_alias_v5_zero` still PASSes (the broker does refuse alias 0,
+> promptly), and `over_max` PASSes now that the maximum is enforced.
 
 ### `functional_v5_cluster` (1 case) — two-node cluster end-to-end reproduction
 
@@ -185,30 +390,41 @@ and boundary scenarios:
 |------|-------------|
 | `qos2_pubrel_resume_collision_cluster` | Cluster-path end-to-end reproduction of the packet-id collision: remote delivery is not `mark_forwarded` on the receiving node, so a stored message loaded during cross-node session resume races with owed PUBREL re-sends |
 
-This suite **requires two manually started nodes** and is never included in the default full run (so it cannot break the single-node suites):
+The test owns the two nodes: an address that already accepts TCP connections is
+**reused** (the original manual two-terminal flow), a missing one is **spawned**
+from `configs/pubrel-collision-cluster/node{N}/` and killed on exit. The suite is
+never part of the default full run (so it cannot break the single-node suites),
+and it must run with `--no-broker`:
 
 ```bash
-# terminal 1 / terminal 2: start both nodes
-./target/release/rmqttd -f rmqtt-test/configs/pubrel-collision-cluster/node1/rmqtt.toml
-./target/release/rmqttd -f rmqtt-test/configs/pubrel-collision-cluster/node2/rmqtt.toml
-
-# terminal 3: run the cluster reproduction suite
-./target/release/mqtt_harness --no-broker --addr 127.0.0.1:1884 --suites functional_v5_cluster --workers 1
+./target/release/mqtt_harness --no-broker --addr 127.0.0.1:1884 --workspace . \
+    --suites functional_v5_cluster --workers 1
 ```
+
+`--no-broker` is mandatory: a harness-managed broker binds the same default
+listeners as node 1 (1883/11883/8883/8080/8443/9443) and would silently stand in
+for it through `--addr` while node 2 stays down. Without it the case reports
+SKIPPED with the command above instead of failing on a bare `os error 10061`
+(WSAECONNREFUSED from the node 2 address). Nodes: 127.0.0.1:1884 (node 1, gRPC
+5364) / 127.0.0.1:1885 (node 2, gRPC 5365); per-node logs in
+`target/pubrel-collision-cluster-node{1,2}.log`.
 
 > Before the fix this test reproduced the BUG in 3/3 rounds (duplicate PUBREL);
 > after the fix it PASSES in 3/3 rounds. Fix design: see
 > [`designs/pubrel-resume-inflight-id-collision.md`](../designs/pubrel-resume-inflight-id-collision.md).
 
-### `stress` (3 cases)
+### `stress` (6 cases)
 
 | Case | Description |
 |------|-------------|
 | `connection_load` | N concurrent client connect/disconnect (default 100) |
 | `publish_load` | Continuous publish 1000 QoS 1 messages, QPS statistics |
 | `fan_out` | 1 publisher → N subscribers fan-out test |
+| `stress_mixed_qos_v311` | Mixed QoS 0/1/2 traffic (v3.1.1 client) |
+| `stress_subscription_mass` | Mass subscription setup and delivery verification |
+| `stress_retain_flood` | Publish many retained messages to flood broker memory |
 
-### `chaos` (6 cases)
+### `chaos` (18 cases)
 
 | Case | Description |
 |------|-------------|
@@ -218,6 +434,90 @@ This suite **requires two manually started nodes** and is never included in the 
 | `chaos_reconnect_storm` | 50 concurrent connection storms |
 | `chaos_qos1_reliability` | QoS 1 reliability verification |
 | `chaos_slow_consumer` | Slow consumer scenario |
+| `session_storage_expired_cleanup` / `_edge` | Session-storage startup-load optimization: expired offline sessions are skipped (and removed) during load, live sessions survive (edge variant included) |
+| `chaos_broker_restart_session_routing` | Issue #475 single-node reproduction: a persistent session restored from sled must stay routable across a broker restart (sub-suite `chaos@session-sled`) |
+| `cluster_restart_session_routing_broadcast` / `_raft` | Same defect through a cluster (broadcast 2 nodes / raft 3 nodes), node 1 restarted only |
+| `cluster_whole_restart_session_routing_broadcast` / `_raft` | Same defect through a cluster, whole-cluster restart |
+| `stress_single_node_restart_session_routing` | Issue #475 stress: 1000 persistent sessions × 100 QoS 1 messages across a standalone-broker restart (sub-suite `chaos@session-sled-stress`) |
+| `stress_cluster_restart_session_routing_broadcast` / `_raft` | Same stress via cluster-broadcast / cluster-raft, node 1 restarted only |
+| `stress_cluster_whole_restart_session_routing_broadcast` / `_raft` | Same stress via cluster-broadcast / cluster-raft, whole-cluster restart |
+
+#### Issue #475 stress tests — how to run
+
+The 5 stress tests scale the issue #475 reproduction to **1000 persistent
+sessions × 100 QoS 1 messages** (100k publishes) and require the broker +
+harness to be built with rustc ≥ 1.94:
+
+```bash
+RUSTUP_TOOLCHAIN=1.97 cargo build -p rmqttd
+RUSTUP_TOOLCHAIN=1.97 cargo build -p rmqtt-test
+
+# Clean sled data from previous runs (a large sled makes broker startup
+# slow; the harness health-check timeout is now 60s as a fallback, but
+# heavy accumulation still slows startup — clean before each run):
+rm -rf rmqtt-test/configs/{session-sled,session-sled-stress,cluster-broadcast-sled,cluster-broadcast-sled-stress,cluster-raft-sled,cluster-raft-sled-stress}/.sled
+
+# Full chaos suite (functional restart tests + all 5 stress tests, ~6.5 min):
+./target/debug/mqtt_harness --binary target/debug/rmqttd \
+  --config rmqtt-test/configs/default/rmqtt.toml \
+  --workspace . --suites chaos --workers 1
+
+# Only the standalone-broker stress test (~25 s):
+./target/debug/mqtt_harness --binary target/debug/rmqttd \
+  --config rmqtt-test/configs/default/rmqtt.toml \
+  --workspace . --suites chaos@session-sled-stress --workers 1
+```
+
+Cluster stress tests are self-managed processes registered in the main
+`chaos` suite (no dedicated sub-suite); per-node logs are written to
+`target/cluster-stress-{broadcast,raft,...}-node{1,2,3}.log`. Scale is
+controlled by `STRESS_SESSIONS` / `STRESS_MSGS_PER_SESSION` in
+`src/tests/functional/session_restart_stress.rs`. Design & defect analysis:
+[`designs/issue-475-restored-session-routing-fix.md`](../designs/issue-475-restored-session-routing-fix.md).
+
+### `issue547` (4 cases) — circuit-breaker window cost on the cluster forward path
+
+Issue #547 reports a three-node raft cluster that cannot finish 7.5 M messages
+at 12 500 msg/s (QoS 2, 150 KiB) under the default circuit breaker: the rate
+decays, the backlog grows, a broker OOMs at 32 GiB. Switching only
+`circuit_breaker.sliding_window_type` to `"CountBased"` makes the same load
+pass. The cause is in `tower-resilience-circuitbreaker 0.10.1` (still present
+in 0.14): the `TimeBased` window keeps one `CallRecord` per call in the last
+45 s — `sliding_window_size` is **not** a cap — and every call rescans all of
+them under the circuit mutex.
+
+Both window types get the **same** load shape and one case each, so the report
+reads as an A/B. The `TimeBased` pair reproduces the defect (red until fixed);
+the `CountBased` pair is the positive control and must stay green.
+
+| Case | Arm | Load | Assertion |
+|------|-----|------|-----------|
+| `issue547_timebased_window_scan_cost` | TimeBased 45 s | sequential, warm-up + 10 k → 135 k records | cross-arm cost at that occupancy must stay < 20× (secondary: growth < 5×) — **FAILS today** |
+| `issue547_countbased_window_scan_cost` | CountBased 20 | same sequential shape | per-call cost must not grow > 2× — control, passes |
+| `issue547_timebased_concurrent_ceiling` | TimeBased 45 s | 16 callers, 20 s | throughput must stay ≥ 0.5× of the early rate — **FAILS today** |
+| `issue547_countbased_concurrent_ceiling` | CountBased 20 | 16 callers, 5 s | throughput must stay ≥ 0.6× of the early rate — control, passes |
+
+All four build the **production** Tower layer (same fields as
+`build_circuit_breaker_layer`, `rmqtt/src/grpc.rs`) around a `GrpcNotifyService`
+look-alike, need no broker and no port, and assert **ratios inside one run** so
+a slow machine cannot flip the verdict. Each `TimeBased` case additionally
+measures a tiny `CountBased` reference block and reports the **cross-arm ratio**
+at the same occupancy (ceiling 20×; measured 157 – 464×) — the one number a
+machine that slowed down mid-run cannot distort, and the reason a machine
+hiccup is reported as an `Error` (via a 5 µs/call noise floor on the reference)
+instead of as a reproduction.
+
+```bash
+# Both windows; debug ~85 s, release ~35 s. No broker, no ports.
+./target/debug/mqtt_harness --workspace . --no-broker --suites issue547 --workers 1
+
+# Just the reproducing pair / just the controls
+./target/debug/mqtt_harness --workspace . --no-broker --suites issue547 -t issue547_timebased --workers 1
+./target/debug/mqtt_harness --workspace . --no-broker --suites issue547 -t issue547_countbased --workers 1
+```
+
+Never part of the default full run: a timing measurement must not share the
+machine with the functional suites' workers.
 
 ## 🏗 Project Structure
 
@@ -235,12 +535,35 @@ rmqtt-test/
     tests/                       # Test cases (functional, stress, chaos)
       functional/                #   functional_v3/v311/v5 cases
       functional/qos2_pubrel_resume_collision_cluster.rs  # cluster reproduction case
+      functional/cluster_session_restart.rs  # issue #475 cluster reproduction (broadcast/raft)
+      functional/session_restart_stress.rs   # issue #475 stress (1000×100, 5 scenarios)
     report/                      # Report system (console, JSON, HTML, detail log)
   configs/                       # Test broker configs (all self-contained)
     default/                     #   default config: rmqtt.toml + plugins/ (retainer/shared-subscription/http-api)
     retain-disabled/             #   retainer plugin NOT loaded (Retain Available = 0)
     pubrel-collision/            #   single node: message-storage enabled broker config
-    pubrel-collision-cluster/    #   cluster: node1/node2 configs (1884/1885 MQTT, 5364/5365 gRPC)
+    pubrel-collision-cluster/    #   cluster: node1/node2 configs, self-managed by the case (1884/1885 MQTT, 5364/5365 gRPC)
+    session-sled/                #   single node, sled session storage (issue #475 reproduction)
+    session-sled-stress/         #   same, isolated sled path for the stress test
+    cluster-broadcast-sled/      #   2-node cluster (1886/1887 MQTT, 5366/5367 gRPC)
+    cluster-broadcast-sled-stress/ #  same, isolated sled path for the stress test
+    cluster-raft-sled/           #   3-node raft cluster (1888/1889/1890 MQTT, 5368-5370 gRPC, 6008-6010 raft)
+    cluster-raft-sled-stress/    #   same, isolated sled path for the stress test
+    auth-http-acl-fallthrough/   #   issue #501 repro: auth-http (ephemeral mock, always 404) +
+                                 #   rmqtt-acl; self-managed brokers on 1896/5376 (allow-all)
+                                 #   and 1900/5377 (deny-all)
+    webhook-connack-refused/     #   client_connack web-hook on a refused CONNECT; self-managed
+                                 #   broker on 1901/5378 with only rmqtt-web-hook started and an
+                                 #   ephemeral in-test receiver as the web-hook URL
+    flapping/                    #   connection flapping protection; harness-managed broker that
+                                 #   declares broker_addr() to own 1902/5379, http-api on 6066,
+                                 #   allow_anonymous = true (deliberately the anonymous path, to
+                                 #   prove the screen covers the connections client_authenticate
+                                 #   never sees) and by_clientid as the only enabled dimension
+    flapping-order/              #   ClientConnect observer order: same gate plus rmqtt-counter,
+                                 #   which counts refused CONNECTs too; owns 1903/5380 with
+                                 #   http-api on 6067 and gets a broker process of its own, so the
+                                 #   case can read node-wide client_connect by exact delta
 ```
 
 > **Test isolation note**: all tests that publish retained messages delete them

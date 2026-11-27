@@ -1,0 +1,146 @@
+##--------------------------------------------------------------------
+## rmqttd node 1 — issue #532 cluster reproduction, TLS ramp (cluster-broadcast, 3 nodes)
+##
+## Purpose: `configs/issue532-ramp-cluster/` with the one difference that
+## matters — the handshake ramp arrives on a **TLS** listener. The case under
+## test is `issue532_tls_cluster_connect_ramp_stall.rs`; it spawns these nodes
+## itself (`functional_v5_cluster` suite, `--no-broker`), owns their processes
+## and kills them on exit.
+##
+## Why the transport is a variable: `rmqtt/src/server.rs::listen_tls` performs
+## the TLS handshake inside a per-connection `tokio::spawn`, i.e. OUTSIDE the
+## per-port `TaskExecQueue` that `max_handshaking_limit` sizes, while the MQTT
+## handshake that follows still goes through that queue. TLS therefore adds
+## unbounded-parallel CPU work (rustls + certificate verification) right next
+## to the queue's dispatcher — the one variable this fixture isolates against
+## its plain-TCP twin. The reporter's deployment ran TLS.
+##
+## Each node therefore has **two** listeners:
+##   * TLS (node 1 -> 1909, node 2 -> 1910, node 3 -> 1911) for the ramp, with
+##     the two-worker pool the case saturates;
+##   * plain TCP (node 1 -> 1912, node 2 -> 1913, node 3 -> 1914) for the
+##     fan-out publishers, the cross-node subscriber and the convergence probe.
+##     Those are ~10 long-lived connections per node, and `MqttV5Client` is
+##     plain-TCP only, so the fan-out deliberately stays off the TLS path: the
+##     ramp is the only TLS workload and the plain pool is sized large so it
+##     can never be mistaken for the constrained resource.
+##
+## Deviations from the reporter's deployment, all deliberate: no
+## session-storage (the report has it off), no http-api (per-node evidence is
+## the probes, the counters and the log tails), and a two-worker handshake pool
+## (the reporter's `max_handshaking_limit` is unknown; see
+## `configs/issue532-ramp-cluster/node1/rmqtt.toml` for why a small pool is
+## what makes the stall reachable inside a test run).
+##
+## Ports: node 1 — TLS 1909 / TCP 1912 / gRPC 5386; nodes 2 and 3 use
+## 1910/1913/5387 and 1911/1914/5388. Nothing else in the repository uses
+## those (MQTT 1883 + 1900-1908, gRPC 5363 + 5380-5385).
+##--------------------------------------------------------------------
+node.id = 1
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+# Off: a CONNECT must never be refused with "the system is currently
+# overloaded" — the case can only fail for the reason under test.
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## RPC
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5386"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Log (the harness redirects stdout/stderr of each node into
+## target/cluster-issue532-tls-nodeN.log, so console is what we want here)
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "."
+log.file = "rmqtt_issue532_tls_cluster_1.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+# Shared by all three nodes: `node_grpc_addrs` carries the whole cluster and
+# every plugin reads the same values (a node skips its own entry).
+plugins.dir = "./rmqtt-test/configs/issue532-ramp-tls-cluster/plugins"
+plugins.default_startups = [
+    "rmqtt-cluster-broadcast",
+    "rmqtt-sys-topic",
+]
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter", "rmqtt-http-api"]
+
+##--------------------------------------------------------------------
+## TLS listener — the ramp (the constrained path; see the header)
+##--------------------------------------------------------------------
+listener.tls.external.enable = true
+listener.tls.external.addr = "127.0.0.1:1909"
+listener.tls.external.workers = 8
+# The pool this case saturates. Not a typo — see the header.
+listener.tls.external.max_handshaking_limit = 2
+# Far above the ramp's concurrency: only the handshake pool may saturate.
+listener.tls.external.max_connections = 4096
+# Bounds the TLS handshake itself (`builder.rs::tls()`), the same budget the
+# plain fixture gives `recv_connect`.
+listener.tls.external.handshake_timeout = "30s"
+listener.tls.external.max_packet_size = "1m"
+listener.tls.external.backlog = 1024
+listener.tls.external.allow_anonymous = true
+# Server-auth only: the ramp's client presents no certificate.
+listener.tls.external.cross_certificate = false
+listener.tls.external.cert = "./rmqtt-bin/rmqtt.pem"
+listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
+listener.tls.external.min_keepalive = 0
+listener.tls.external.keepalive_backoff = 0.75
+listener.tls.external.max_inflight = 16
+listener.tls.external.max_mqueue_len = 1000
+listener.tls.external.mqueue_rate_limit = "1000,1s"
+listener.tls.external.max_clientid_len = 65535
+listener.tls.external.max_qos_allowed = 2
+listener.tls.external.max_topic_levels = 0
+listener.tls.external.session_expiry_interval = "5m"
+listener.tls.external.max_session_expiry_interval = "0h"
+listener.tls.external.message_retry_interval = "5s"
+listener.tls.external.message_expiry_interval = "5m"
+listener.tls.external.max_subscriptions = 0
+
+##--------------------------------------------------------------------
+## Plain TCP listener — fan-out load + convergence probe only (see the header)
+##--------------------------------------------------------------------
+listener.tcp.external.enable = true
+listener.tcp.external.addr = "127.0.0.1:1912"
+listener.tcp.external.workers = 8
+# Deliberately NOT the constrained path: ~10 long-lived clients per node.
+listener.tcp.external.max_handshaking_limit = 64
+listener.tcp.external.max_connections = 4096
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1m"
+listener.tcp.external.backlog = 1024
+listener.tcp.external.allow_anonymous = true
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled
+##--------------------------------------------------------------------
+## The TLS and the external TCP listener above are the only ones used. The
+## internal TCP listener would clash between the three nodes (all default to
+## 11883), and the WS/WSS/QUIC listeners would clash with the harness-managed
+## broker ports (8080/8443/9443).
+listener.tcp.internal.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false

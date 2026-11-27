@@ -1,0 +1,32 @@
+##--------------------------------------------------------------------
+## rmqtt-http-api (issue #532 ramp fixture)
+##--------------------------------------------------------------------
+## Enabled for fidelity and for diagnostics, in that order:
+##
+## * the reporter's deployment reads `/api/v1/nodes` (plugin attrs carry
+##   the per-peer `transfer_queue_len` / `active_tasks`), so a node
+##   without the API is not the node the incident was observed on;
+##
+## * the ramp case probes the API once a stall is detected. Whether it
+##   still answers separates "the whole runtime is stuck" from "the
+##   per-port handshake queue is stuck while the rest of the broker is
+##   healthy" — the two candidate mechanisms of issue #532.
+##
+## No `storage` section on purpose: the history flusher needs a writable
+## redb path (the default under /var/log is not writable on every
+## platform), and `rmqtt-sys-topic` already drives the periodic stats
+## snapshot this fixture needs.
+##
+## No `http_bearer_token`: the fixture is bound to loopback and the case
+## under test is a connection ramp, not API authentication.
+##
+## Port 6068: belongs to this fixture alone (harness 6060, cluster stress
+## node 1 6061, flapping 6066, flapping-order 6067, session-sled-stress
+## 6070).
+##
+## See more keys: https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
+
+max_row_limit = 1000
+http_laddr = "127.0.0.1:6068"
+http_request_log = false
+prometheus_metrics_cache_interval = "1s"

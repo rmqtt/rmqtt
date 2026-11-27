@@ -135,6 +135,57 @@ fn run_protocol_error(
     }
 }
 
+/// Append a Remaining Length varint for `len` and then `body` to `pkt`.
+fn finish_packet(pkt: &mut Vec<u8>, body: &[u8]) {
+    let mut len = body.len();
+    loop {
+        let mut b = (len % 128) as u8;
+        len /= 128;
+        if len > 0 {
+            b |= 0x80;
+        }
+        pkt.push(b);
+        if len == 0 {
+            break;
+        }
+    }
+    pkt.extend_from_slice(body);
+}
+
+/// Expect the broker to reject a raw packet: connection closed (EOF /
+/// timeout), or a DISCONNECT packet carrying a specific reason code.
+/// When `expect_reason` is `Some(code)`, the DISCONNECT reason code must
+/// match; otherwise any rejection signal is accepted.
+fn expect_rejection_with_reason(
+    stream: &mut TcpStream,
+    data: &[u8],
+    expect_reason: Option<u8>,
+) -> anyhow::Result<()> {
+    let _ = stream.write_all(data);
+    let _ = stream.flush();
+    let mut buf = [0u8; 16];
+    match stream.read(&mut buf) {
+        Ok(0) | Err(_) => Ok(()), // EOF / timeout → closed
+        Ok(n) if n >= 1 && buf[0] == 0xE0 => {
+            // DISCONNECT: [0xE0][rlen][reason][props...]
+            if let Some(expected) = expect_reason {
+                let rlen = buf[1] as usize;
+                if n >= 3 && rlen >= 1 && buf[2] != expected {
+                    return Err(anyhow::anyhow!(
+                        "broker sent DISCONNECT with reason 0x{:02X}, expected 0x{:02X}",
+                        buf[2],
+                        expected
+                    ));
+                }
+            }
+            Ok(())
+        }
+        Ok(n) => {
+            Err(anyhow::anyhow!("broker did not reject the packet (responded {:02x?})", &buf[..n.min(4)]))
+        }
+    }
+}
+
 /// Negative: SUBSCRIBE with requested QoS 3 is a protocol error.
 pub struct ProtocolErrorV5SubscribeQos3Test;
 
@@ -344,8 +395,10 @@ impl TestCase for ProtocolErrorV5PublishPacketIdZeroTest {
             let mut body: Vec<u8> = Vec::new();
             body.extend_from_slice(&(topic.len() as u16).to_be_bytes());
             body.extend_from_slice(topic);
-            body.push(0x00); // property length
+            // Wire order for QoS > 0: topic, THEN packet id, THEN properties,
+            // so the rejection really is the zero packet id [MQTT-2.2.1-2].
             body.extend_from_slice(&[0x00, 0x00]); // packet id 0 — illegal
+            body.push(0x00); // property length
             body.extend_from_slice(b"payload");
 
             let mut pkt = vec![0x32]; // PUBLISH QoS 1
@@ -463,6 +516,388 @@ impl TestCase for ProtocolErrorV5ReservedPacketTypeTest {
             } else {
                 Err(anyhow::anyhow!("broker did not close for reserved packet type 0x00"))
             }
+        })
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// P0 gap-analysis additions (designs/mqtt-5.0-standalone-test-gap-analysis.md)
+// ---------------------------------------------------------------------------
+
+/// Negative: SUBSCRIBE with an empty payload (zero topic filters) is a
+/// Protocol Error. [MQTT-3.8.3-3]
+pub struct ProtocolErrorV5SubscribeEmptyPayloadTest;
+
+impl TestCase for ProtocolErrorV5SubscribeEmptyPayloadTest {
+    fn name(&self) -> &str {
+        "protocol_error_v5_subscribe_empty_payload"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        run_protocol_error(self.name(), ctx, start, |stream| {
+            let body: [u8; 3] = [0x00, 0x01, 0x00]; // packet id 1, property length 0
+            let mut pkt = vec![0x82]; // SUBSCRIBE, QoS 1 fixed header
+            finish_packet(&mut pkt, &body);
+            expect_rejection_with_reason(stream, &pkt, None)
+        })
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: UNSUBSCRIBE with an empty payload (zero topic filters) is a
+/// Protocol Error. [MQTT-3.10.3-2]
+///
+/// Broker fixed in the v5 codec (`Subscribe::decode` / `Unsubscribe::decode`
+/// now reject empty topic_filters, parity with v3); this test is the
+/// regression guard for that fix.
+pub struct ProtocolErrorV5UnsubscribeEmptyPayloadTest;
+
+impl TestCase for ProtocolErrorV5UnsubscribeEmptyPayloadTest {
+    fn name(&self) -> &str {
+        "protocol_error_v5_unsubscribe_empty_payload"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        run_protocol_error(self.name(), ctx, start, |stream| {
+            let body: [u8; 3] = [0x00, 0x01, 0x00]; // packet id 1, property length 0
+            let mut pkt = vec![0xA2]; // UNSUBSCRIBE, QoS 1 fixed header
+            finish_packet(&mut pkt, &body);
+            expect_rejection_with_reason(stream, &pkt, None)
+        })
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: SUBSCRIBE with Retain Handling value 3 in the subscription
+/// options is a Malformed Packet. [MQTT-3.8.3-4]
+pub struct ProtocolErrorV5RetainHandling3Test;
+
+impl TestCase for ProtocolErrorV5RetainHandling3Test {
+    fn name(&self) -> &str {
+        "protocol_error_v5_retain_handling_3"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        run_protocol_error(self.name(), ctx, start, |stream| {
+            let topic = b"test/rh3";
+            let mut body: Vec<u8> = Vec::new();
+            body.extend_from_slice(&[0x00, 0x01]); // packet id 1
+            body.push(0x00); // property length 0
+            body.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+            body.extend_from_slice(topic);
+            body.push(0x30); // options: QoS 0, Retain Handling = 3 — illegal
+
+            let mut pkt = vec![0x82];
+            finish_packet(&mut pkt, &body);
+            expect_rejection_with_reason(stream, &pkt, None)
+        })
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: SUBSCRIBE with reserved bits (6-7) set in the subscription
+/// options is a Malformed Packet. [MQTT-3.8.3-5]
+pub struct ProtocolErrorV5SubOptionsReservedBitsTest;
+
+impl TestCase for ProtocolErrorV5SubOptionsReservedBitsTest {
+    fn name(&self) -> &str {
+        "protocol_error_v5_sub_options_reserved_bits"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        run_protocol_error(self.name(), ctx, start, |stream| {
+            let topic = b"test/subres";
+            let mut body: Vec<u8> = Vec::new();
+            body.extend_from_slice(&[0x00, 0x01]); // packet id 1
+            body.push(0x00); // property length 0
+            body.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+            body.extend_from_slice(topic);
+            body.push(0xC0); // options: reserved bits 6-7 set — illegal
+
+            let mut pkt = vec![0x82];
+            finish_packet(&mut pkt, &body);
+            expect_rejection_with_reason(stream, &pkt, None)
+        })
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: SUBSCRIBE with Subscription Identifier 0 is a Protocol Error.
+/// [MQTT-3.8.2.1.2]
+pub struct ProtocolErrorV5SubIdZeroTest;
+
+impl TestCase for ProtocolErrorV5SubIdZeroTest {
+    fn name(&self) -> &str {
+        "protocol_error_v5_sub_id_zero"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        run_protocol_error(self.name(), ctx, start, |stream| {
+            let topic = b"test/subid0";
+            let mut body: Vec<u8> = Vec::new();
+            body.extend_from_slice(&[0x00, 0x01]); // packet id 1
+            body.push(0x02); // property length
+            body.push(0x0B); // Subscription Identifier property
+            body.push(0x00); // value 0 — illegal
+            body.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+            body.extend_from_slice(topic);
+            body.push(0x00); // subscription options: QoS 0
+
+            let mut pkt = vec![0x82];
+            finish_packet(&mut pkt, &body);
+            expect_rejection_with_reason(stream, &pkt, None)
+        })
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: UNSUBSCRIBE carrying a Subscription Identifier property is a
+/// Protocol Error. [MQTT-3.10.2.1]
+pub struct ProtocolErrorV5UnsubscribeWithSubIdTest;
+
+impl TestCase for ProtocolErrorV5UnsubscribeWithSubIdTest {
+    fn name(&self) -> &str {
+        "protocol_error_v5_unsubscribe_with_sub_id"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        run_protocol_error(self.name(), ctx, start, |stream| {
+            let topic = b"test/unsubid";
+            let mut body: Vec<u8> = Vec::new();
+            body.extend_from_slice(&[0x00, 0x01]); // packet id 1
+            body.push(0x02); // property length
+            body.push(0x0B); // Subscription Identifier property — illegal here
+            body.push(0x01); // value 1
+            body.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+            body.extend_from_slice(topic);
+
+            let mut pkt = vec![0xA2];
+            finish_packet(&mut pkt, &body);
+            expect_rejection_with_reason(stream, &pkt, None)
+        })
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: PUBLISH with DUP=1 and QoS=0 is a Malformed Packet.
+/// [MQTT-3.3.1-2]
+pub struct ProtocolErrorV5PublishDupOnQos0Test;
+
+impl TestCase for ProtocolErrorV5PublishDupOnQos0Test {
+    fn name(&self) -> &str {
+        "protocol_error_v5_publish_dup_on_qos0"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        run_protocol_error(self.name(), ctx, start, |stream| {
+            let topic = b"test/dup0";
+            let mut body: Vec<u8> = Vec::new();
+            body.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+            body.extend_from_slice(topic);
+            body.push(0x00); // property length 0
+            body.extend_from_slice(b"payload");
+
+            let mut pkt = vec![0x38]; // PUBLISH with DUP=1, QoS=0 — illegal
+            finish_packet(&mut pkt, &body);
+            expect_rejection_with_reason(stream, &pkt, None)
+        })
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: DISCONNECT with non-zero reserved fixed-header flags is a
+/// Malformed Packet. [MQTT-3.14.1-1 / MQTT-3.14.1-2]
+pub struct ProtocolErrorV5DisconnectBadFlagsTest;
+
+impl TestCase for ProtocolErrorV5DisconnectBadFlagsTest {
+    fn name(&self) -> &str {
+        "protocol_error_v5_disconnect_bad_flags"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        run_protocol_error(self.name(), ctx, start, |stream| {
+            let pkt = [0xE1u8, 0x00]; // DISCONNECT with fixed-header flags != 0
+            expect_rejection_with_reason(stream, &pkt, None)
+        })
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: SUBSCRIBE with packet identifier 0 is a Protocol Error.
+/// [MQTT-2.2.1-2]
+pub struct ProtocolErrorV5SubscribePacketIdZeroTest;
+
+impl TestCase for ProtocolErrorV5SubscribePacketIdZeroTest {
+    fn name(&self) -> &str {
+        "protocol_error_v5_subscribe_packet_id_zero"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        run_protocol_error(self.name(), ctx, start, |stream| {
+            let topic = b"test/subpid0";
+            let mut body: Vec<u8> = Vec::new();
+            body.extend_from_slice(&[0x00, 0x00]); // packet id 0 — illegal
+            body.push(0x00); // property length 0
+            body.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+            body.extend_from_slice(topic);
+            body.push(0x00); // subscription options: QoS 0
+
+            let mut pkt = vec![0x82];
+            finish_packet(&mut pkt, &body);
+            expect_rejection_with_reason(stream, &pkt, None)
+        })
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: UNSUBSCRIBE with packet identifier 0 is a Protocol Error.
+/// [MQTT-2.2.1-2]
+pub struct ProtocolErrorV5UnsubscribePacketIdZeroTest;
+
+impl TestCase for ProtocolErrorV5UnsubscribePacketIdZeroTest {
+    fn name(&self) -> &str {
+        "protocol_error_v5_unsubscribe_packet_id_zero"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        run_protocol_error(self.name(), ctx, start, |stream| {
+            let topic = b"test/unsubpid0";
+            let mut body: Vec<u8> = Vec::new();
+            body.extend_from_slice(&[0x00, 0x00]); // packet id 0 — illegal
+            body.push(0x00); // property length 0
+            body.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+            body.extend_from_slice(topic);
+
+            let mut pkt = vec![0xA2];
+            finish_packet(&mut pkt, &body);
+            expect_rejection_with_reason(stream, &pkt, None)
+        })
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: PUBLISH with a topic name that is not valid UTF-8 is a Malformed
+/// Packet. [MQTT-1.5.3 / MQTT-3.3.2-1]
+pub struct ProtocolErrorV5InvalidUtf8TopicTest;
+
+impl TestCase for ProtocolErrorV5InvalidUtf8TopicTest {
+    fn name(&self) -> &str {
+        "protocol_error_v5_invalid_utf8_topic"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        run_protocol_error(self.name(), ctx, start, |stream| {
+            let mut body: Vec<u8> = Vec::new();
+            body.extend_from_slice(&[0x00, 0x02]); // topic length 2
+            body.extend_from_slice(&[0xC3, 0x28]); // invalid UTF-8 sequence
+            body.push(0x00); // property length 0
+            body.extend_from_slice(b"payload");
+
+            let mut pkt = vec![0x30]; // PUBLISH QoS 0
+            finish_packet(&mut pkt, &body);
+            expect_rejection_with_reason(stream, &pkt, None)
+        })
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: PUBLISH with a User Property value that is not valid UTF-8 is a
+/// Malformed Packet. [MQTT-1.5.3 / MQTT-3.3.2.3.8]
+pub struct ProtocolErrorV5UserPropertyBadUtf8Test;
+
+impl TestCase for ProtocolErrorV5UserPropertyBadUtf8Test {
+    fn name(&self) -> &str {
+        "protocol_error_v5_user_property_bad_utf8"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        run_protocol_error(self.name(), ctx, start, |stream| {
+            let topic = b"test/uprop";
+            let mut body: Vec<u8> = Vec::new();
+            body.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+            body.extend_from_slice(topic);
+            body.push(0x09); // property length: 1 + (2+2) + (2+2)
+            body.push(0x26); // User Property
+            body.extend_from_slice(&[0x00, 0x02]); // key length 2
+            body.extend_from_slice(b"k1");
+            body.extend_from_slice(&[0x00, 0x02]); // value length 2
+            body.extend_from_slice(&[0xC3, 0x28]); // invalid UTF-8 value
+            body.extend_from_slice(b"payload");
+
+            let mut pkt = vec![0x30]; // PUBLISH QoS 0
+            finish_packet(&mut pkt, &body);
+            expect_rejection_with_reason(stream, &pkt, None)
+        })
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// Negative: an AUTH packet when no authentication method was negotiated in
+/// CONNECT must be rejected. [MQTT-4.12.0-1 / MQTT-3.15.1]
+pub struct ProtocolErrorV5UnsolicitedAuthTest;
+
+impl TestCase for ProtocolErrorV5UnsolicitedAuthTest {
+    fn name(&self) -> &str {
+        "protocol_error_v5_unsolicited_auth"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        run_protocol_error(self.name(), ctx, start, |stream| {
+            let pkt = [0xF0u8, 0x00]; // AUTH with no properties
+            expect_rejection_with_reason(stream, &pkt, None)
         })
     }
 

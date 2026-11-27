@@ -23,6 +23,8 @@ impl HtmlReporter {
         html.push_str(".error { color: #ff4757; }\n");
         html.push_str(".timeout { color: #ffa502; }\n");
         html.push_str(".skipped { color: #747d8c; }\n");
+        html.push_str(".expected-fail { color: #f9ca24; }\n");
+        html.push_str(".info { color: #54a0ff; }\n");
         html.push_str("table { border-collapse: collapse; width: 100%; }\n");
         html.push_str("th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #333; }\n");
         html.push_str("th { background: #16213e; }\n");
@@ -41,8 +43,17 @@ impl HtmlReporter {
              <span class='failed'>Failed: {}</span> | \
              <span class='error'>Errors: {}</span> | \
              <span class='timeout'>Timeouts: {}</span> | \
-             <span class='skipped'>Skipped: {}</span></p>\n",
-            summary.total, summary.passed, summary.failed, summary.errors, summary.timeouts, summary.skipped
+             <span class='skipped'>Skipped: {}</span> | \
+             <span class='expected-fail'>ExpectedFail: {}</span> | \
+             <span class='info'>Info: {}</span></p>\n",
+            summary.total,
+            summary.passed,
+            summary.failed,
+            summary.errors,
+            summary.timeouts,
+            summary.skipped,
+            summary.expected_fail,
+            summary.info
         ));
         html.push_str(&format!("<p>Duration: {:.2}s</p>\n", summary.total_duration.as_secs_f64()));
         html.push_str("</div>\n");
@@ -57,10 +68,14 @@ impl HtmlReporter {
                 TestVerdict::Error(_) => ("error", "ERROR"),
                 TestVerdict::Timeout => ("timeout", "TIMEOUT"),
                 TestVerdict::Skipped(_) => ("skipped", "SKIP"),
+                TestVerdict::ExpectedFail(_) => ("expected-fail", "XFAIL"),
+                TestVerdict::Info(_) => ("info", "INFO"),
             };
             let reason = match &r.verdict {
                 TestVerdict::Failed(r) | TestVerdict::Error(r) | TestVerdict::Skipped(r) => r.clone(),
                 TestVerdict::Timeout => "timed out".to_string(),
+                TestVerdict::ExpectedFail(rv) => format!("EXPECTED-FAIL: {}", rv),
+                TestVerdict::Info(rv) => format!("INFO: {}", rv),
                 TestVerdict::Passed => r.note.clone().unwrap_or_default(),
             };
             let duration = if r.duration.as_millis() < 1000 {

@@ -4,6 +4,7 @@
 
 HTTP 认证使用外部自建 HTTP 应用认证数据源，根据 HTTP API 返回的数据判定认证结果，能够实现复杂的认证鉴权逻辑。
 
+> **注意——认证链与 ACL 的交互：** 本插件参与 RMQTT 按优先级排序的认证链，不会改变或覆盖 ACL 行为。当插件无法做出判定（例如认证服务返回 404/500 等非 2xx 状态码）时，将判定为 `ignore` 并继续执行认证链中的下一个插件。内置的 `rmqtt-acl` 插件是认证链的末端成员，其默认末条规则 `["allow", "all"]` 的动作列省略后表示**包含 CONNECT 在内的所有操作**——被判定为 `ignore` 的连接会被它显式放行（即使 `allow_anonymous = false`）。启用本插件（或任何自定义认证插件）时，请相应配置 ACL 规则：将 `rmqtt-acl.toml` 中的 `["allow", "all"]` 注释掉并启用 `["deny", "all"]`，使只有被认证显式允许的客户端才能连接（fail-closed）。详见 `rmqtt-acl` README 与 [docs/zh_CN/acl.md](./acl.md)。
 
 #### 插件：
 
@@ -44,7 +45,9 @@ disconnect_if_pub_rejected = true
 ## Default: false
 disconnect_if_expiry = false
 
-##Return 'Deny' if http request error otherwise 'Ignore'
+## 仅当 HTTP 请求本身失败（传输层错误：连接拒绝、超时、DNS/TLS 失败）时返回 'Deny'，
+## 否则返回 'Ignore'。非 2xx 状态码响应（404/500/502 等）不属于请求错误，
+## 始终判定为 'Ignore' 并继续执行认证链。
 ##
 ## Value: true | false
 ## Default: true
@@ -111,6 +114,13 @@ http_acl_req.params = { access = "%A", username = "%u", clientid = "%c", ipaddr 
   - API HTTP 请求失败，且deny_if_error配置等于:false, 判定结果为:ignore, 继续执行认证链。
 - 超级用户：
   - 认证成功 且 响应头返回“X-Superuser: true”, 超级用户将跳过ACL授权。
+
+> **警告**<br>
+> 判定为 'ignore' 时，最终结果由认证链中其余插件决定。内置 rmqtt-acl 插件默认规则以
+> ["allow", "all"] 结尾，其省略的动作列表示**包含 CONNECT 在内的所有操作**，因此被判定为
+> 'ignore' 的连接会被该规则显式放行（即使 `allow_anonymous = false`）。启用自定义认证插件
+> （rmqtt-auth-http、rmqtt-auth-jwt 等）时，请将 rmqtt-acl.toml 中的 ["allow", "all"]
+> 注释掉并启用 ["deny", "all"]，以获得 fail-closed（失败即拒绝）行为。详见 docs/zh_CN/acl.md。
   
 响应示例：
 ```

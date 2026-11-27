@@ -6,6 +6,8 @@
 
 RMQTT 的 JWT 认证插件。验证 JSON Web Token 进行客户端认证。
 
+> **注意——认证链与 ACL 的交互：** 本插件参与 RMQTT 按优先级排序的认证链，不会改变或覆盖 ACL 行为。当插件无法做出判定时，将判定为 `ignore` 并继续执行认证链中的下一个插件。内置的 `rmqtt-acl` 插件是认证链的末端成员，其默认末条规则 `["allow", "all"]` 的动作列省略后表示**包含 CONNECT 在内的所有操作**——被判定为 `ignore` 的连接会被它显式放行（即使 `allow_anonymous = false`）。启用本插件（或任何自定义认证插件）时，请相应配置 ACL 规则：将 `rmqtt-acl.toml` 中的 `["allow", "all"]` 注释掉并启用 `["deny", "all"]`，使只有被认证显式允许的客户端才能连接（fail-closed）。详见 `rmqtt-acl` README。
+
 ## 概述
 
 从客户端的密码或用户名字段中提取并验证 JWT 令牌。支持基于 HMAC 的加密（HS256/HS384/HS512）和公钥加密（RS256/RS384/RS512、ES256/ES384/ES512）。提供声明验证功能，包括 `exp`、`nbf`、`sub`、`iss`、`aud` 和扩展的自定义声明。

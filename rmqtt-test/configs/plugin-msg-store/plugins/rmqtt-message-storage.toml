@@ -1,0 +1,11 @@
+## ram backend: the suite asserts the *plugin* semantics (an unexpired
+## message is replayed to a subscriber that subscribes later), not the
+## backend, so an in-memory store is enough and needs no external service.
+storage.type = "ram"
+storage.ram.cache_capacity = "256M"
+storage.ram.cache_max_count = 100_000
+storage.ram.encode = false
+
+## Clear expired messages often enough for the expiry case to observe the
+## removal within its (short) budget.
+cleanup_count = 5000

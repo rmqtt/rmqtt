@@ -129,6 +129,11 @@ impl TestCase for Qos2PubrelResendOnResumeV3Test {
             )
             .await?;
             subscriber.subscribe(&topic, QoSTest::ExactlyOnce).await?;
+            // Disable auto-PUBCOMP BEFORE the exchange starts (the broker can
+            // answer PUBREC with PUBREL within microseconds; disabling it
+            // after the PUBLISH races the reader loop and auto-completes the
+            // exchange, leaving no owed PUBREL on resume).
+            subscriber.set_auto_pubcomp(false);
             tokio::time::sleep(Duration::from_millis(100)).await;
 
             // Publish a QoS 2 message
@@ -156,7 +161,6 @@ impl TestCase for Qos2PubrelResendOnResumeV3Test {
                 return Err(anyhow::anyhow!("unexpected payload: {:?}", msg.payload));
             }
 
-            subscriber.set_auto_pubcomp(false);
             let rel_pid = subscriber
                 .recv_pubrel_timeout(Duration::from_secs(5))
                 .await

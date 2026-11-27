@@ -376,6 +376,22 @@ impl Disconnect {
         }
     }
 
+    /// Whether receiving this DISCONNECT deletes the stored Will Message.
+    ///
+    /// [MQTT-3.1.2-8/9] the Server deletes the Will only on a DISCONNECT with
+    /// Reason Code 0x00 (Normal disconnection). Reason Code 0x04 (Disconnect
+    /// with Will Message) is the Client explicitly asking for the Will to be
+    /// sent, and every other code leaves it due for publication as well. MQTT
+    /// 3.1.1 has no Reason Code, so every v3 DISCONNECT is a normal one.
+    #[inline]
+    pub fn deletes_will(&self) -> bool {
+        match self {
+            Disconnect::V3 => true,
+            Disconnect::V5(d) => d.reason_code == DisconnectReasonCode::NormalDisconnection,
+            Disconnect::Other(_) => false,
+        }
+    }
+
     #[inline]
     pub fn reason(&self) -> Option<&ByteString> {
         match self {
@@ -1077,6 +1093,62 @@ impl ConnectAckReason {
     }
 }
 
+/// A refusal a `ClientConnect` hook asks for.
+///
+/// The variants name the reason rather than the wire code: the broker maps a
+/// refusal to the code the Client's protocol version defines, so a handler
+/// never has to know which protocol level it is answering.
+///
+/// # Protocol Versions
+///
+/// MQTT 5.0 defines a distinct reason code for every variant. MQTT 3.1 and
+/// 3.1.1 define six CONNACK return codes only, so a variant without an exact
+/// equivalent falls back to the closest one, chosen by what the Client is
+/// meant to do next: a refusal it may retry becomes `ServiceUnavailable`, a
+/// policy refusal becomes `NotAuthorized`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ConnectRefuse {
+    /// The Client is not allowed to connect at all.
+    Banned,
+    /// The Client opened too many connections in the current window.
+    ConnectionRateExceeded,
+    /// The Client is not authorized to connect.
+    NotAuthorized,
+    /// The node is overloaded; the Client may retry later.
+    ServerBusy,
+    /// The Client exhausted a quota; the Client may retry later.
+    QuotaExceeded,
+    /// Any other reason; the Client may retry later.
+    UnspecifiedError,
+}
+
+impl ConnectRefuse {
+    /// The CONNACK return code to refuse a MQTT 3.1 / 3.1.1 Client with.
+    #[inline]
+    pub fn to_v3(self) -> ConnectAckReasonV3 {
+        match self {
+            ConnectRefuse::Banned | ConnectRefuse::NotAuthorized => ConnectAckReasonV3::NotAuthorized,
+            ConnectRefuse::ConnectionRateExceeded
+            | ConnectRefuse::ServerBusy
+            | ConnectRefuse::QuotaExceeded
+            | ConnectRefuse::UnspecifiedError => ConnectAckReasonV3::ServiceUnavailable,
+        }
+    }
+
+    /// The CONNACK reason code to refuse a MQTT 5.0 Client with.
+    #[inline]
+    pub fn to_v5(self) -> ConnectAckReasonV5 {
+        match self {
+            ConnectRefuse::Banned => ConnectAckReasonV5::Banned,
+            ConnectRefuse::ConnectionRateExceeded => ConnectAckReasonV5::ConnectionRateExceeded,
+            ConnectRefuse::NotAuthorized => ConnectAckReasonV5::NotAuthorized,
+            ConnectRefuse::ServerBusy => ConnectAckReasonV5::ServerBusy,
+            ConnectRefuse::QuotaExceeded => ConnectAckReasonV5::QuotaExceeded,
+            ConnectRefuse::UnspecifiedError => ConnectAckReasonV5::UnspecifiedError,
+        }
+    }
+}
+
 /// An unsubscribe request with topic filter and optional shared group.
 #[derive(Clone, Debug)]
 pub struct Unsubscribe {
@@ -1387,6 +1459,28 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
     }
 }
 
+/// Outcome of [`Sink::publish`]: the delivery completed, and this records *how*.
+///
+/// Both variants describe a **completed** delivery. The operation's contract is "hand this
+/// Application Message to this client", not "put these bytes on the wire" — so the distinction
+/// here is bookkeeping and diagnostics, not success versus failure:
+///
+/// - [`Self::Sent`] — the packet went out.
+/// - [`Self::DiscardedTooLarge`] — the packet exceeds the Maximum Packet Size the client
+///   declared, so it was dropped instead. Section 3.1.2.11.4 requires the Server to "discard it
+///   without sending it and then behave as if it had completed sending that Application Message"
+///   ([MQTT-3.1.2-25]).
+///
+/// A transport failure is *not* modelled here: it stays in the `Err` channel, where it means the
+/// session itself is broken and must be torn down. Keeping the benign discard out of that channel
+/// is deliberate — it makes `?` safe, because the completed-but-not-sent outcome can never be
+/// propagated as an error by accident.
+#[must_use]
+pub(crate) enum PublishOutcome {
+    Sent,
+    DiscardedTooLarge,
+}
+
 pub enum Sink<Io> {
     V3(v3::MqttStream<Io>),
     V5(v5::MqttStream<Io>),
@@ -1448,7 +1542,7 @@ where
         mut p: Publish,
         message_expiry_interval: Option<NonZeroU32>,
         server_topic_aliases: Option<&Arc<ServerTopicAliases>>,
-    ) -> Result<()> {
+    ) -> Result<PublishOutcome> {
         match self {
             Sink::V3(s) => {
                 s.send_publish(p.take()).await?;
@@ -1468,10 +1562,18 @@ where
                     properties.message_expiry_interval = message_expiry_interval;
                     properties.topic_alias = alias;
                 }
-                s.send_publish(p.take()).await?;
+                match s.send_publish(p.take()).await {
+                    Ok(()) => {}
+                    Err(e) if crate::net::is_over_max_packet_size(&e) => {
+                        // [MQTT-3.1.2-25]: too large to send, so discard it without sending it.
+                        // The caller treats this as a completed delivery.
+                        return Ok(PublishOutcome::DiscardedTooLarge);
+                    }
+                    Err(e) => return Err(e),
+                }
             }
         }
-        Ok(())
+        Ok(PublishOutcome::Sent)
     }
 
     #[inline]
@@ -2362,6 +2464,11 @@ bitflags! {
     pub struct StateFlags: u8 {
         const Kicked = 0b00000001;
         const ByAdminKick = 0b00000010;
+        /// A DISCONNECT packet was received on this connection. Informational:
+        /// whether the stored Will is deleted is decided from the recorded
+        /// Reason Code ([`Disconnect::deletes_will`]), never from this flag —
+        /// keying the Will decision off it suppresses the Will for Reason Code
+        /// 0x04 and every other "must publish" code as well.
         const DisconnectReceived = 0b00000100;
         const CleanStart = 0b00001000;
         const Ping = 0b00010000;
@@ -2415,6 +2522,9 @@ pub enum Reason {
     SubscribeRefused,
     DelayedPublishRefused,
     MessageExpiration,
+    /// The message could not be sent because it exceeds the Maximum Packet Size the client
+    /// declared; it was discarded without being sent ([MQTT-3.1.2-25]).
+    MessageTooLarge,
     MessageQueueFull,
     InflightWindowFull,
     ProtocolError(ByteString),
@@ -2479,6 +2589,18 @@ impl std::convert::From<Reason> for PublishResult {
                 properties: UserProperties::default(),
                 reason_string: Some("Message expired".into()),
                 disconnect: true,
+            },
+
+            // The message was discarded instead of being sent ([MQTT-3.1.2-25]), so the session
+            // itself is unaffected — never disconnect on account of it. This reason is raised on
+            // the outbound delivery path only, so `PublishResult` (a PUBACK to a publisher) is
+            // never built from it; `QuotaExceeded` is used merely to keep the mapping total,
+            // because 0x95 is not a legal PUBACK reason code.
+            MessageTooLarge => Self {
+                reason_code: QuotaExceeded,
+                properties: UserProperties::default(),
+                reason_string: Some("Message too large to send".into()),
+                disconnect: false,
             },
 
             ProtocolError(msg) => Self {
@@ -2563,14 +2685,28 @@ impl ToReasonCode for Reason {
             Reason::ConnectReadWriteError => DisconnectReasonCode::UnspecifiedError,
             Reason::ConnectRemoteClose => DisconnectReasonCode::ServerShuttingDown,
             Reason::ConnectKeepaliveTimeout => DisconnectReasonCode::KeepAliveTimeout,
+            // `is_admin == false` means the kick came from the connect path of a session
+            // takeover, which is the only code that passes it: `v5.rs` and `v3.rs` kick
+            // the existing session when a second Client connects with the same Client ID,
+            // while administrative kicks (http-api) pass `true`. [MQTT-3.1.4-3] requires
+            // 0x8E there, not 0x87: the Client was not rejected, it was displaced.
             Reason::ConnectKicked(is_admin) => {
                 if *is_admin {
                     DisconnectReasonCode::AdministrativeAction
                 } else {
-                    DisconnectReasonCode::NotAuthorized
+                    DisconnectReasonCode::SessionTakenOver
                 }
             }
             Reason::HandshakeRateExceeded => DisconnectReasonCode::ConnectionRateExceeded,
+            // The reason code is a misnomer for this variant, and it is left that way on purpose.
+            // A session expires only once there is no connection left to write to: `SessionExpiration`
+            // is handed to `Session::clean()` alone, which runs *after* the connection is gone
+            // (following `offline_run_loop`) and terminates a session rather than a connection, and
+            // it never becomes one of the Reasons accumulated into `disconnected_reason()` -- so the
+            // single production caller of `to_reason_code()`, the DISCONNECT builder in `Session::run`,
+            // cannot reach this arm. MQTT 5.0 defines no "Session expired" DISCONNECT code either
+            // (0x8E is Session taken over, 0x8F is Topic Filter invalid), so there is no correct code
+            // to map to: this is the least wrong existing label, not a one-line defect to fix.
             Reason::SessionExpiration => DisconnectReasonCode::SessionTakenOver,
             Reason::SubscribeFailed(_) => DisconnectReasonCode::UnspecifiedError,
             Reason::UnsubscribeFailed(_) => DisconnectReasonCode::UnspecifiedError,
@@ -2578,6 +2714,7 @@ impl ToReasonCode for Reason {
             Reason::PublishResult(pubres) => pubres.reason_code.to_reason_code(),
             Reason::DelayedPublishRefused => DisconnectReasonCode::NotAuthorized,
             Reason::MessageExpiration => DisconnectReasonCode::MessageRateTooHigh,
+            Reason::MessageTooLarge => DisconnectReasonCode::PacketTooLarge,
             Reason::MessageQueueFull => DisconnectReasonCode::QuotaExceeded,
             Reason::InflightWindowFull => DisconnectReasonCode::ReceiveMaximumExceeded,
             Reason::ProtocolError(_) => DisconnectReasonCode::ProtocolError,
@@ -2662,6 +2799,9 @@ impl Display for Reason {
             Reason::MessageExpiration => {
                 "MessageExpiration" //message expiration
             }
+            Reason::MessageTooLarge => {
+                "MessageTooLarge" //discarded, exceeds the client's Maximum Packet Size
+            }
             Reason::MessageQueueFull => {
                 "MessageQueueFull" //message deliver queue is full
             }
@@ -2735,30 +2875,46 @@ impl ClientTopicAliases {
 
     #[inline]
     pub async fn set_and_get(&self, alias: Option<NonZeroU16>, topic: TopicName) -> Result<TopicName> {
+        // [MQTT-3.3.2-9] a Client MUST NOT send a PUBLISH carrying a Topic Alias greater
+        // than the Topic Alias Maximum the Server returned in its CONNACK. That maximum
+        // is `max_topic_aliases`: `v5.rs` writes it into the CONNACK and hands the same
+        // number to `SessionState::new`, so an alias above it is a Protocol Error and
+        // takes the Reason Code MQTT 5.0 defines for an invalid Topic Alias, 0x94.
+        // Storing such an alias instead would accept, silently, a packet this Server had
+        // just declared out of range. The code is DISCONNECT-only: 0x94 is not a legal
+        // PUBACK reason code, so the connection ends rather than the PUBLISH being nacked.
+        if let Some(alias) = alias {
+            if alias.get() as usize > self.max_topic_aliases {
+                return Err(MqttError::TopicAliasInvalid(alias).into());
+            }
+        }
         match (alias, topic.len()) {
             (Some(alias), 0) => {
-                self.aliases.read().await.get(&alias).ok_or_else(|| {
-                    MqttError::PublishAckReason(
-                        PublishAckReason::ImplementationSpecificError,
-                        ByteString::from(
-                            "implementation specific error, the ‘topic‘ associated with the ‘alias‘ was not found",
-                        ),
-                    ).into()
-                }).cloned()
+                // An alias-only PUBLISH whose alias was never established on this
+                // connection is a protocol error, and MQTT 5.0 gives that condition its
+                // own Reason Code: 0x94 Topic Alias invalid, not the generic 0x83
+                // Implementation specific error. `MqttError::TopicAliasInvalid` carries
+                // it, so the DISCONNECT the Client sees names the actual problem.
+                self.aliases
+                    .read()
+                    .await
+                    .get(&alias)
+                    .ok_or_else(|| MqttError::TopicAliasInvalid(alias).into())
+                    .cloned()
             }
             (Some(alias), _) => {
                 let mut aliases = self.aliases.write().await;
                 let len = aliases.len();
                 if let Some(topic_mut) = aliases.get_mut(&alias) {
                     *topic_mut = topic.clone()
-                }else{
+                } else {
                     if len >= self.max_topic_aliases {
                         return Err(MqttError::PublishAckReason(
                             PublishAckReason::ImplementationSpecificError,
                             ByteString::from(
                                 format!("implementation specific error, the number of topic aliases exceeds the limit ({})", self.max_topic_aliases),
                             ),
-                        ).into())
+                        ).into());
                     }
                     aliases.insert(alias, topic.clone());
                 }
@@ -2767,7 +2923,8 @@ impl ClientTopicAliases {
             (None, 0) => Err(MqttError::PublishAckReason(
                 PublishAckReason::ImplementationSpecificError,
                 ByteString::from("implementation specific error, ‘alias’ and ‘topic’ are both empty"),
-            ).into()),
+            )
+            .into()),
             (None, _) => Ok(topic),
         }
     }
@@ -2835,6 +2992,54 @@ impl DelayedPublish {
     pub fn is_expired(&self) -> bool {
         timestamp_millis() > self.expired_time
     }
+}
+
+/// Metadata snapshot of one pending delayed publish.
+///
+/// Returned by `DelayedSender::list` for the HTTP API / dashboard. The payload
+/// content is deliberately NOT included — only its size (`payload_len`).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DelayedPublishInfo {
+    /// Target topic (the `$delayed/<interval>/` prefix already stripped).
+    pub topic: TopicName,
+    /// Delay interval in seconds, from the `$delayed` prefix.
+    pub delay_interval: u32,
+    /// Absolute trigger timestamp (millis).
+    pub expired_time: TimestampMillis,
+    /// Publisher identity, extracted from `from.id`.
+    pub client_id: Option<ClientId>,
+    pub username: Option<UserName>,
+    /// Publish metadata.
+    pub qos: u8,
+    pub retain: bool,
+    /// Payload size in bytes (content is never returned).
+    pub payload_len: usize,
+}
+
+impl std::convert::From<&DelayedPublish> for DelayedPublishInfo {
+    #[inline]
+    fn from(dp: &DelayedPublish) -> Self {
+        Self {
+            topic: dp.publish.topic.clone(),
+            delay_interval: dp.publish.delay_interval.unwrap_or(0),
+            expired_time: dp.expired_time,
+            client_id: Some(dp.from.id.client_id.clone()),
+            username: dp.from.id.username.clone(),
+            qos: dp.publish.qos.value(),
+            retain: dp.publish.retain,
+            payload_len: dp.publish.payload.len(),
+        }
+    }
+}
+
+/// Full detail of one pending delayed publish, including the payload content.
+///
+/// Returned by `DelayedSender::find` for the on-demand HTTP detail endpoint;
+/// unlike [`DelayedPublishInfo`] this carries the actual payload bytes.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DelayedPublishDetail {
+    pub info: DelayedPublishInfo,
+    pub payload: Bytes,
 }
 
 impl std::cmp::Eq for DelayedPublish {}
@@ -2975,4 +3180,128 @@ fn test_reason() {
 
     let reasons = Reason::Reasons(vec![Reason::ConnectKicked(false), Reason::MessageExpiration]);
     assert_eq!(reasons.to_string(), "Kicked,MessageExpiration");
+
+    // A non-administrative kick is a session takeover, and [MQTT-3.1.4-3] requires the
+    // DISCONNECT sent to the displaced Client to carry 0x8E, not 0x87.
+    assert_eq!(Reason::ConnectKicked(false).to_reason_code(), DisconnectReasonCode::SessionTakenOver);
+    assert_eq!(Reason::ConnectKicked(true).to_reason_code(), DisconnectReasonCode::AdministrativeAction);
+    // A takeover must not be reported as an authorization failure of either kind.
+    assert_ne!(Reason::ConnectKicked(false).to_reason_code(), DisconnectReasonCode::NotAuthorized);
+}
+
+#[test]
+fn test_connect_refuse_codes() {
+    // MQTT 5.0 defines a reason code for every variant.
+    assert_eq!(ConnectRefuse::Banned.to_v5(), ConnectAckReasonV5::Banned);
+    assert_eq!(ConnectRefuse::ConnectionRateExceeded.to_v5(), ConnectAckReasonV5::ConnectionRateExceeded);
+    assert_eq!(ConnectRefuse::NotAuthorized.to_v5(), ConnectAckReasonV5::NotAuthorized);
+    assert_eq!(ConnectRefuse::ServerBusy.to_v5(), ConnectAckReasonV5::ServerBusy);
+    assert_eq!(ConnectRefuse::QuotaExceeded.to_v5(), ConnectAckReasonV5::QuotaExceeded);
+    assert_eq!(ConnectRefuse::UnspecifiedError.to_v5(), ConnectAckReasonV5::UnspecifiedError);
+
+    // MQTT 3.1 and 3.1.1 define six CONNACK return codes only, so the mapping
+    // falls back by what the Client is meant to do next: a refusal it may retry
+    // becomes 0x03 Service unavailable, a policy refusal becomes 0x05.
+    assert_eq!(ConnectRefuse::Banned.to_v3(), ConnectAckReasonV3::NotAuthorized);
+    assert_eq!(ConnectRefuse::NotAuthorized.to_v3(), ConnectAckReasonV3::NotAuthorized);
+    assert_eq!(ConnectRefuse::ConnectionRateExceeded.to_v3(), ConnectAckReasonV3::ServiceUnavailable);
+    assert_eq!(ConnectRefuse::ServerBusy.to_v3(), ConnectAckReasonV3::ServiceUnavailable);
+    assert_eq!(ConnectRefuse::QuotaExceeded.to_v3(), ConnectAckReasonV3::ServiceUnavailable);
+    assert_eq!(ConnectRefuse::UnspecifiedError.to_v3(), ConnectAckReasonV3::ServiceUnavailable);
+}
+
+/// `$`-prefixed subscription filters: the prefixes are recognised through the first
+/// level only, and each one is refused unless its feature is compiled in.
+#[cfg(test)]
+mod parse_topic_filter_tests {
+    use super::*;
+
+    use bytestring::ByteString;
+
+    fn filter(s: &str) -> ByteString {
+        ByteString::from(s)
+    }
+
+    /// A plain filter is passed through untouched, with no group and no ceiling.
+    #[test]
+    fn plain_filter_passes_through() {
+        let (tf, group, limit) = parse_topic_filter(&filter("a/b"), true, true).unwrap();
+        assert_eq!(tf, "a/b");
+        assert!(group.is_none());
+        assert!(limit.is_none());
+    }
+
+    /// An empty filter carries no topic at all and is refused whatever is enabled.
+    #[test]
+    fn empty_filter_is_refused() {
+        assert!(parse_topic_filter(&filter(""), true, true).is_err());
+        assert!(parse_topic_filter(&filter(""), false, false).is_err());
+    }
+
+    /// `$share/<group>/<filter>` splits into the group and the filter it carries.
+    #[cfg(feature = "shared-subscription")]
+    #[test]
+    fn share_prefix_splits_group_and_filter() {
+        let (tf, group, limit) = parse_topic_filter(&filter("$share/g1/a/b"), true, false).unwrap();
+        assert_eq!(tf, "a/b");
+        assert_eq!(group.as_deref(), Some("g1"));
+        assert!(limit.is_none());
+    }
+
+    /// The `$share` prefix needs both halves. An empty group is taken as it stands:
+    /// nothing validates it, which is a gap of its own but not this prefix's.
+    #[cfg(feature = "shared-subscription")]
+    #[test]
+    fn share_prefix_requires_group_and_filter() {
+        assert!(parse_topic_filter(&filter("$share"), true, false).is_err());
+        assert!(parse_topic_filter(&filter("$share/g1"), true, false).is_err());
+
+        let (tf, group, _) = parse_topic_filter(&filter("$share//a/b"), true, false).unwrap();
+        assert_eq!(tf, "a/b");
+        assert_eq!(group.as_deref(), Some(""));
+    }
+
+    /// Without the feature the prefix is refused rather than quietly read as a
+    /// literal filter.
+    #[cfg(not(feature = "shared-subscription"))]
+    #[test]
+    fn share_prefix_is_refused_without_the_feature() {
+        let err = parse_topic_filter(&filter("$share/g1/a/b"), true, false).unwrap_err();
+        assert!(err.to_string().contains("Shared subscription is not enabled"), "{err}");
+    }
+
+    /// `$limit/<n>/<filter>` carries a subscription ceiling instead of a group, and a
+    /// ceiling that does not parse is a configuration error.
+    #[cfg(feature = "limit-subscription")]
+    #[test]
+    fn limit_prefix_carries_the_ceiling() {
+        let (tf, group, limit) = parse_topic_filter(&filter("$limit/10/a/b"), false, true).unwrap();
+        assert_eq!(tf, "a/b");
+        assert!(group.is_none());
+        assert_eq!(limit, Some(10));
+
+        assert!(parse_topic_filter(&filter("$limit/ten/a/b"), false, true).is_err());
+        assert!(parse_topic_filter(&filter("$limit/10"), false, true).is_err());
+    }
+
+    /// `$exclusive/<filter>` is that same ceiling of one.
+    #[cfg(feature = "limit-subscription")]
+    #[test]
+    fn exclusive_prefix_means_a_ceiling_of_one() {
+        let (tf, group, limit) = parse_topic_filter(&filter("$exclusive/a/b"), false, true).unwrap();
+        assert_eq!(tf, "a/b");
+        assert!(group.is_none());
+        assert_eq!(limit, Some(1));
+    }
+
+    /// A `$` level that is *not* the first is an ordinary level, so `a/$share/b` is a
+    /// literal filter and never a shared subscription (GitHub issue #537).
+    #[cfg(feature = "shared-subscription")]
+    #[test]
+    fn dollar_prefix_is_special_only_in_the_first_position() {
+        let (tf, group, limit) = parse_topic_filter(&filter("a/$share/b"), true, true).unwrap();
+        assert_eq!(tf, "a/$share/b");
+        assert!(group.is_none());
+        assert!(limit.is_none());
+    }
 }

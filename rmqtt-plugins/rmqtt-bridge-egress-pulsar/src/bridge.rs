@@ -72,6 +72,8 @@ impl SerializeMessage for Message<'_> {
         let payload = p.payload.to_vec();
         let event_time = p.create_time.map(|t| t as u64);
         let partition_key = cfg.partition_key.clone();
+        // The configured partition key is a UTF-8 string, not the base64 encoding of raw key bytes.
+        let partition_key_b64_encoded = partition_key.as_ref().map(|_| false);
         let ordering_key = cfg.ordering_key.as_ref().map(|okey| okey.generate(&f.client_id));
         let replicate_to = cfg.replicate_to.clone();
         let schema_version = cfg.schema_version.clone();
@@ -80,6 +82,7 @@ impl SerializeMessage for Message<'_> {
             payload,
             properties,
             partition_key,
+            partition_key_b64_encoded,
             ordering_key,
             replicate_to,
             event_time,

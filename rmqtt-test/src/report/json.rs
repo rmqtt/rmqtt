@@ -22,6 +22,8 @@ pub struct JsonSummary {
     pub skipped: usize,
     pub errors: usize,
     pub timeouts: usize,
+    pub expected_fail: usize,
+    pub info: usize,
     pub duration_ms: u64,
 }
 
@@ -61,6 +63,8 @@ impl JsonReporter {
                 skipped: summary.skipped,
                 errors: summary.errors,
                 timeouts: summary.timeouts,
+                expected_fail: summary.expected_fail,
+                info: summary.info,
                 duration_ms: summary.total_duration.as_millis() as u64,
             },
             cases,
@@ -82,6 +86,8 @@ fn verdict_to_status(v: &TestVerdict) -> String {
         TestVerdict::Skipped(_) => "skipped".to_string(),
         TestVerdict::Error(_) => "error".to_string(),
         TestVerdict::Timeout => "timeout".to_string(),
+        TestVerdict::ExpectedFail(_) => "expected-fail".to_string(),
+        TestVerdict::Info(_) => "info".to_string(),
     }
 }
 
@@ -89,6 +95,8 @@ fn verdict_to_reason(v: &TestVerdict) -> Option<String> {
     match v {
         TestVerdict::Failed(r) | TestVerdict::Skipped(r) | TestVerdict::Error(r) => Some(r.clone()),
         TestVerdict::Timeout => Some("test timed out".to_string()),
+        TestVerdict::ExpectedFail(r) => Some(format!("expected-fail: {}", r)),
+        TestVerdict::Info(r) => Some(format!("info: {}", r)),
         TestVerdict::Passed => None,
     }
 }

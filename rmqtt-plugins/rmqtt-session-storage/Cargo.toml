@@ -19,7 +19,7 @@ redis-cluster = ["redis", "rmqtt-storage/redis-cluster"]
 circuit-breaker = ["rmqtt-storage/circuit-breaker"]
 
 [dependencies]
-rmqtt = { workspace = true, features = ["plugin"] }
+rmqtt = { workspace = true, features = ["plugin", "metrics"] }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["sync", "time", "rt-multi-thread"] }
 rmqtt-storage = { workspace = true, default-features = false, features = ["ttl"] , optional = true }
